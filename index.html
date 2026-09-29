@@ -1,0 +1,1622 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Wheel</title>
+<meta name="description" content="Cash-secured puts, assignment and covered calls, tracked by basis. Value, buying power, return, and which puts to sell this week.">
+<meta name="color-scheme" content="dark">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230b0e13'/%3E%3Ctext x='16' y='24' font-size='20' font-family='monospace' font-weight='700' fill='%234d9fff' text-anchor='middle'%3EW%3C/text%3E%3C/svg%3E">
+<style>
+:root{
+  color-scheme:dark;
+  --bg:#0b0e13; --panel:#11161f; --panel2:#151b26; --line:#212a38; --line2:#2c3646;
+  --tx:#e6ebf2; --sub:#9aa6b8; --mut:#697588;
+  --blue:#4d9fff; --bluebg:rgba(77,159,255,.10);
+  --gold:#b08d3f;
+  --green:#2fd583; --greenbg:rgba(47,213,131,.10);
+  --red:#f4655f;   --redbg:rgba(244,101,95,.10);
+  --amber:#f0a832; --amberbg:rgba(240,168,50,.10);
+  --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
+  --sans:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{background:var(--bg);color:var(--tx);font-family:var(--sans);font-size:14px;line-height:1.5;
+     -webkit-font-smoothing:antialiased}
+.wrap{max-width:1180px;margin:0 auto;padding:22px 18px 80px}
+.main{min-width:0}
+a{color:var(--blue)}
+h1,h2,h3{margin:0;font-weight:600;letter-spacing:-.01em}
+
+/* Section index — only once there is width to spare for it. */
+.rail{display:none}
+[id^="sec-"]{scroll-margin-top:22px}
+@media(min-width:1120px){
+  .wrap{max-width:1340px;display:grid;grid-template-columns:118px minmax(0,1fr);gap:24px;
+        align-items:start;padding-bottom:66vh}
+  .rail{display:flex;flex-direction:column;gap:1px;position:sticky;top:22px}
+  .rail a{display:block;padding:6px 10px;border-radius:7px;font-size:12.5px;line-height:1.35;color:var(--mut);
+          text-decoration:none;border-left:2px solid transparent}
+  .rail a:hover{color:var(--tx);background:var(--panel)}
+  .rail a:focus-visible{outline:2px solid var(--blue);outline-offset:2px}
+  .rail a.on{color:var(--blue);background:var(--bluebg);border-left-color:var(--blue);font-weight:600}
+}
+html{scroll-behavior:smooth}
+@media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
+
+.mast{display:flex;align-items:flex-end;gap:16px;flex-wrap:wrap}
+.gold{color:var(--gold)}
+.mast .logo{font-family:var(--mono);font-size:34px;font-weight:700;letter-spacing:-.03em;line-height:1}
+.clock{margin-left:auto;text-align:right;line-height:1.25}
+.clock .t{font-family:var(--mono);font-size:26px;font-weight:700;letter-spacing:.01em;font-variant-numeric:tabular-nums}
+.clock .d{font-size:11.5px;color:var(--mut);letter-spacing:.04em;text-transform:uppercase}
+.clock .c{color:var(--gold)}
+.tagline{color:var(--sub);max-width:660px;margin:10px 0 18px;font-size:13.5px}
+.tagline em{color:var(--gold);font-weight:700;font-style:normal}
+
+/* --- surfaces --- */
+.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px 20px;margin-bottom:14px}
+.head{font-size:10.5px;font-weight:700;color:var(--sub);text-transform:uppercase;letter-spacing:.1em;margin-bottom:10px}
+.muted{color:var(--mut);font-size:12px}
+.hint{font-size:11.5px;color:var(--mut);margin-top:6px}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end}
+.scroll{overflow-x:auto}
+.pos{color:var(--green)} .neg{color:var(--red)}
+.sechead{display:flex;align-items:center;gap:9px;flex-wrap:wrap}
+.sechead button{min-height:29px}
+
+/* --- controls --- */
+label,.lbl{display:block;font-size:10px;font-weight:700;color:var(--mut);text-transform:uppercase;
+           letter-spacing:.08em;margin-bottom:4px}
+input,select,textarea{background:var(--panel2);border:1px solid var(--line2);color:var(--tx);border-radius:8px;
+  padding:7px 10px;font:inherit;font-size:13px;width:100%;outline:none}
+/* Date pickers render taller than text boxes; one fixed height keeps every control on a row level. */
+input,select{height:35px}
+td input,td select{height:31px}
+input:focus,select:focus,textarea:focus{border-color:var(--blue)}
+textarea{resize:vertical;min-height:64px}
+input[type=number]::-webkit-outer-spin-button,input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+input[type=number]{-moz-appearance:textfield}
+button{background:var(--panel2);border:1px solid var(--line2);color:var(--tx);border-radius:8px;
+  padding:7px 13px;font:inherit;font-size:13px;cursor:pointer;white-space:nowrap}
+button:hover{border-color:var(--blue);color:#fff}
+button.primary{background:var(--blue);border-color:var(--blue);color:#04101f;font-weight:600}
+button.primary:hover{background:#69b0ff;color:#04101f}
+button.danger{color:var(--red);border-color:rgba(244,101,95,.35)}
+button.danger:hover{background:var(--redbg);border-color:var(--red)}
+button.warn{color:var(--amber);border-color:rgba(240,168,50,.55)}
+button.warn:hover{background:var(--amberbg);border-color:var(--amber);color:var(--amber)}
+button.small{padding:4px 10px;font-size:12px}
+button.x{padding:1px 7px;font-size:11px;color:var(--mut)}
+button.x:hover{color:var(--red);border-color:var(--red)}
+.err{color:var(--red);font-size:12px;margin-top:5px}
+.okmsg{color:var(--green);font-size:12px;margin-top:5px}
+.flag{font-size:12.5px;margin-top:6px}
+.flag.red{color:var(--red)} .flag.amber{color:var(--amber)} .flag.mut{color:var(--mut)}
+
+/* --- field grid: the auto margin sits on the LABEL so label and control travel down together --- */
+.fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(136px,1fr));gap:10px}
+.fields>div{display:flex;flex-direction:column}
+.fields>div>label{margin-top:auto}
+.fields.two{grid-template-columns:1fr 1fr}
+@media(min-width:1120px){
+  .fields.acctrow{grid-template-columns:150px 150px 130px 150px}
+  .fields.nprow{grid-template-columns:96px 104px 150px 88px 110px 100px 150px minmax(170px,1fr)}
+}
+
+/* --- metric tiles --- */
+.statrow{display:grid;grid-template-columns:repeat(auto-fit,minmax(146px,1fr));gap:10px}
+.metric{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:9px 12px}
+.metric .k{font-size:9.5px;font-weight:700;color:var(--mut);text-transform:uppercase;letter-spacing:.08em}
+.metric .v{font-family:var(--mono);font-size:17px;font-weight:600;margin-top:2px;line-height:1.25}
+.metric .v.gold{color:var(--gold)}
+.metric .r{font-size:11px;color:var(--mut);margin-top:1px}
+
+/* --- pills, banners --- */
+.pill{display:inline-block;font-size:10.5px;font-weight:700;letter-spacing:.05em;padding:2px 9px;
+      border-radius:999px;text-transform:uppercase;white-space:nowrap}
+.pill.good{background:var(--greenbg);color:var(--green);border:1px solid rgba(47,213,131,.3)}
+.pill.bad{background:var(--redbg);color:var(--red);border:1px solid rgba(244,101,95,.3)}
+.pill.info{background:var(--bluebg);color:var(--blue);border:1px solid rgba(77,159,255,.3)}
+.pill.warn{background:var(--amberbg);color:var(--amber);border:1px solid rgba(240,168,50,.3)}
+.pill.plain{color:var(--sub);border:1px solid var(--line2)}
+.banner{border-radius:10px;padding:10px 14px;margin-bottom:12px;font-weight:600;font-size:13px}
+.banner.red{background:var(--redbg);border:1px solid rgba(244,101,95,.4);color:var(--red)}
+.banner.amber{background:var(--amberbg);border:1px solid rgba(240,168,50,.4);color:var(--amber)}
+
+/* --- the answer box --- */
+.calbox{background:var(--bluebg);border:1px solid rgba(77,159,255,.28);border-radius:11px;padding:12px 15px;margin:12px 0}
+.calans{font-family:var(--mono);font-size:19px;font-weight:700;color:var(--blue)}
+.calsub{font-size:12.5px;color:var(--sub);margin-top:4px}
+.calsub b{color:var(--gold);font-weight:700}
+.calrule{margin-top:7px;padding-top:7px;border-top:1px solid rgba(77,159,255,.2)}
+.pick{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:5px 0;border-bottom:1px solid rgba(77,159,255,.12)}
+.pick:last-child{border-bottom:0}
+.pick .w{font-family:var(--mono);font-size:13px;font-weight:600}
+.pick .w b{color:var(--gold)}
+
+/* --- tables --- */
+table{width:100%;border-collapse:collapse;font-size:12.5px}
+th{text-align:left;font-size:9.5px;font-weight:700;color:var(--mut);text-transform:uppercase;letter-spacing:.08em;
+   padding:6px 8px;border-bottom:1px solid var(--line2);white-space:nowrap}
+td{padding:6px 8px;border-bottom:1px solid var(--line);vertical-align:middle}
+td.num,th.num{text-align:right;font-family:var(--mono)}
+td.nw{white-space:nowrap}
+td input,td select{padding:5px 8px;font-size:12.5px}
+tr.expand>td{background:var(--panel2);padding:10px 12px}
+tr.clickable{cursor:pointer}
+tr.clickable:hover td{background:rgba(77,159,255,.04)}
+.seltbl td input{min-width:70px}
+.seltbl td.sym input{min-width:74px;text-transform:uppercase}
+
+/* --- positions --- */
+.poshead{display:flex;align-items:center;gap:9px;flex-wrap:wrap}
+.card.shut .poshead{margin-bottom:0}
+.card:not(.shut) .poshead{margin-bottom:12px}
+.poshead .tk{font-family:var(--mono);font-size:18px;font-weight:700;letter-spacing:.02em}
+.sub2{font-size:12.5px;color:var(--sub);margin-top:8px}
+.sub2 b{color:var(--gold);font-weight:700}
+.marks{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-top:12px;padding:9px 12px;
+       background:var(--panel2);border:1px solid var(--line);border-radius:10px}
+.marks input{width:110px}
+.acts{display:flex;gap:6px;flex-wrap:wrap;margin-top:12px}
+
+/* --- disclosure --- */
+details{border-top:1px solid var(--line);padding-top:9px;margin-top:12px}
+details summary{cursor:pointer;font-size:12.5px;color:var(--sub);font-weight:600;list-style:none}
+details summary::-webkit-details-marker{display:none}
+details summary::before{content:"\25B8  ";color:var(--mut)}
+details[open] summary::before{content:"\25BE  "}
+
+/* --- modal --- */
+.modal{display:none;position:fixed;inset:0;z-index:50;background:rgba(0,0,0,.6);
+       align-items:center;justify-content:center;padding:20px}
+.modalcard{background:var(--panel);border:1px solid var(--line2);border-radius:14px;
+           padding:18px 22px;max-width:500px;width:100%;max-height:86vh;overflow:auto}
+
+.vbar{color:var(--gold);font-weight:700;padding:0 6px}
+.tabs{display:flex;gap:6px;row-gap:10px;flex-wrap:wrap;align-items:center;margin:10px 0 12px}
+.tabsep{display:inline-block;width:2px;height:20px;border-radius:1px;background:var(--gold);opacity:.7;margin:0 6px;flex:none}
+.chart{width:100%;height:150px;display:block}
+.split{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+@media(max-width:660px){.split,.fields.two{grid-template-columns:1fr}.wrap{padding:16px 12px 60px}}
+</style>
+</head>
+<body>
+<div class="modal" id="modal">
+  <div class="modalcard">
+    <div class="head" id="modalTitle" style="margin-bottom:12px"></div>
+    <div id="modalBody"></div>
+  </div>
+</div>
+
+<div class="wrap">
+
+<nav class="rail" id="rail" aria-label="Sections">
+  <a href="#sec-acct">Account</a>
+  <a href="#sec-sel">Put Selector</a>
+  <a href="#sec-new">Sell a Put</a>
+  <a href="#sec-open">Open Positions</a>
+  <a href="#sec-closed">Closed Positions</a>
+  <a href="#sec-data">Data</a>
+</nav>
+
+<div class="main">
+<div id="saveAlert"></div>
+
+<div class="mast">
+  <div class="logo"><span class="gold">W</span>heel</div>
+  <div class="clock" id="clock" aria-live="off"></div>
+</div>
+<p class="tagline">
+  Sell the put, take the shares, sell the call. <em>Basis is the number that matters.</em> Every credit you bank
+  comes off what you paid, every closed leg lands in the account to the penny, and the cash you have free
+  sets the highest strike you can afford to sell next.
+</p>
+
+<!-- ======================= 01 · Account ======================= -->
+<div class="card" id="sec-acct">
+  <div class="sechead">
+    <button class="small" id="tg_acct" onclick="toggleSection('acct')">&#9662;</button>
+    <div class="head" style="margin-bottom:0">01 &middot; Account</div>
+    <span class="muted" style="margin-left:auto" id="acctSummary"></span>
+  </div>
+  <div id="body_acct">
+    <div class="tabs" id="tabs"></div>
+    <div class="fields acctrow">
+      <div><label for="s_start">Starting value</label><input id="s_start" type="number" step="0.01"></div>
+      <div><label for="s_startDate">Start date</label><input id="s_startDate" type="date"></div>
+      <div><label for="s_fee">Fees per contract</label><input id="s_fee" type="number" step="0.01" min="0"></div>
+      <div><label for="s_min">Min weekly return %</label><input id="s_min" type="number" step="0.05" min="0"></div>
+    </div>
+    <div class="statrow" id="acctStats" style="margin-top:14px"></div>
+    <div class="calbox" id="maxBox"></div>
+    <details id="flowsBox">
+      <summary>Deposits &amp; withdrawals <span class="muted" id="flowsCount"></span></summary>
+      <div class="row" style="margin-top:10px">
+        <div style="width:150px"><label for="f_date">Date</label><input id="f_date" type="date"></div>
+        <div style="width:140px"><label for="f_amt">Amount (&minus; to withdraw)</label><input id="f_amt" type="number" step="0.01" placeholder="5000"></div>
+        <div style="flex:1;min-width:160px"><label for="f_note">Note</label><input id="f_note" type="text" placeholder="optional"></div>
+        <button id="f_add">Add</button>
+      </div>
+      <div class="err" id="f_err"></div>
+      <div class="scroll"><table id="flowsTbl" style="margin-top:10px"></table></div>
+    </details>
+    <div class="hint">
+      Account value is the starting value plus deposits and <b>closed</b> P/L, to the penny. Shares count at what you paid
+      for them, not at market &mdash; put a last price on a position to see where it stands. Fees per contract fill in
+      the fee boxes as a starting guess; the number you type is the number recorded.
+    </div>
+  </div>
+</div>
+
+<!-- ======================= 02 · Put Selector ======================= -->
+<div class="card" id="sec-sel">
+  <div class="sechead">
+    <button class="small" id="tg_sel" onclick="toggleSection('sel')">&#9662;</button>
+    <div class="head" style="margin-bottom:0">02 &middot; Put Selector</div>
+    <span class="muted" style="margin-left:auto" id="selSummary"></span>
+  </div>
+  <div id="body_sel">
+    <div class="row" style="margin-top:10px">
+      <div style="width:170px"><label for="sel_cap">Capital to deploy</label><input id="sel_cap" type="number" step="0.01"></div>
+      <span class="muted" style="align-self:center" id="selCapNote"></span>
+    </div>
+    <div class="scroll" style="margin-top:12px"><table class="seltbl" id="selTbl"></table></div>
+    <div class="row" style="margin-top:10px">
+      <button class="small" onclick="addCand()">+ Add a put</button>
+      <button class="small danger" style="margin-left:auto" onclick="clearCands()">Clear list</button>
+    </div>
+    <div id="selOut"></div>
+    <div class="hint">
+      Picks the mix of contracts with the most net credit that fits the capital, fees taken out per contract. Puts that
+      miss your weekly minimum are left out. When expiries differ, each credit is scaled to a week so a two-week put
+      has to earn twice as much to compete &mdash; with one expiry it is simply the largest total credit.
+    </div>
+  </div>
+</div>
+
+<!-- ======================= 03 · Sell a Put ======================= -->
+<div class="card" id="sec-new">
+  <div class="sechead">
+    <button class="small" id="tg_new" onclick="toggleSection('new')">&#9662;</button>
+    <div class="head" style="margin-bottom:0">03 &middot; Sell a Put</div>
+    <button class="small" style="margin-left:auto" onclick="bringIn()" title="Start tracking shares you already hold">Bring in existing shares</button>
+  </div>
+  <div id="body_new">
+    <div class="fields nprow" style="margin-top:10px">
+      <div><label for="np_sym">Symbol</label><input id="np_sym" type="text" placeholder="xyz" style="text-transform:uppercase"></div>
+      <div><label for="np_strike">Strike</label><input id="np_strike" type="number" step="any" placeholder="40"></div>
+      <div><label for="np_exp">Expiry</label><input id="np_exp" type="date"></div>
+      <div><label for="np_qty">Contracts</label><input id="np_qty" type="number" step="1" min="1" value="1"></div>
+      <div><label for="np_credit">Credit per share</label><input id="np_credit" type="number" step="any" placeholder="0.40"></div>
+      <div><label for="np_fees">Fees</label><input id="np_fees" type="number" step="0.01" min="0" data-auto="1"></div>
+      <div><label for="np_date">Date sold</label><input id="np_date" type="date"></div>
+      <div><label for="np_into">Position</label><select id="np_into"></select></div>
+    </div>
+    <div id="np_prev"></div>
+    <div class="row" style="margin-top:12px;align-items:center">
+      <button class="primary" id="np_go">Record the sale</button>
+      <span class="okmsg" id="np_ok" style="margin:0"></span>
+      <button class="small" id="np_clear" title="Clear the form" style="margin-left:auto">&#10005;</button>
+    </div>
+    <div class="err" id="np_err"></div>
+  </div>
+</div>
+
+<!-- ======================= 04 · Open Positions ======================= -->
+<div class="card" id="sec-open">
+  <div class="sechead">
+    <button class="small" id="tg_open" onclick="toggleSection('open')">&#9662;</button>
+    <div class="head" style="margin-bottom:0">04 &middot; Open Positions</div>
+    <span class="muted" style="margin-left:auto" id="openSummary"></span>
+  </div>
+</div>
+<div id="body_open"></div>
+
+<!-- ======================= 05 · Closed Positions ======================= -->
+<div class="card" id="sec-closed">
+  <div class="sechead">
+    <button class="small" id="tg_closed" onclick="toggleSection('closed')">&#9662;</button>
+    <div class="head" style="margin-bottom:0">05 &middot; Closed Positions</div>
+    <span class="muted" style="margin-left:auto" id="closedSummary"></span>
+  </div>
+  <div id="body_closed">
+    <div class="statrow" id="closedStats" style="margin-top:12px"></div>
+    <div class="scroll" style="margin-top:12px"><table id="closedTbl"></table></div>
+    <div class="metric" style="margin-top:12px;padding:10px 12px" id="eqBox">
+      <div class="k">Account value over time &mdash; closed P/L and cash flows</div>
+      <svg class="chart" id="eqChart" viewBox="0 0 560 150" preserveAspectRatio="none"></svg>
+    </div>
+    <div class="hint">
+      Return on equity is total P/L over the most capital the position ever tied up &mdash; put collateral plus shares
+      at cost. Annualized is simple, not compounded: that return times 365 over the days held, and anything shorter
+      than a week counts as a week, because the cash cannot go back to work before the next Friday.
+    </div>
+  </div>
+</div>
+
+<!-- ======================= 06 · Data ======================= -->
+<div class="card" id="sec-data">
+  <div class="sechead">
+    <button class="small" id="tg_data" onclick="toggleSection('data')">&#9662;</button>
+    <div class="head" style="margin-bottom:0">06 &middot; Data Management</div>
+  </div>
+  <div id="body_data">
+    <div class="row" style="margin-top:10px">
+      <button class="small" id="exportBtn">Export to box</button>
+      <button class="small" id="copyBtn">Copy to clipboard</button>
+      <button class="small" id="downloadBtn">Download .json</button>
+      <button class="small" id="uploadBtn">Load .json file</button>
+      <input type="file" id="fileInput" accept="application/json,.json" style="display:none;width:auto">
+      <button class="small primary" id="importBtn">Import from box</button>
+      <button class="small danger" id="wipeBtn" style="margin-left:auto">Clear all data</button>
+    </div>
+    <textarea id="io" style="margin-top:14px;min-height:96px;font-family:var(--mono);font-size:11.5px" placeholder="Every account, as JSON. Export here, keep it somewhere safe, paste it back to restore."></textarea>
+    <div class="err" id="io_err"></div>
+    <div class="hint">Everything lives in this browser's localStorage. Clearing site data wipes it, and nothing leaves this machine.</div>
+  </div>
+</div>
+
+<p class="muted" style="text-align:center;margin-top:26px">Not financial advice &mdash; a ledger with arithmetic.</p>
+<!-- Bump this on release. Separate from SCHEMA, which versions the saved data. -->
+<p class="muted" style="text-align:center;margin-top:4px">version <span class="vbar">|</span> 0.9</p>
+
+</div><!-- /.main -->
+</div>
+
+<script>
+"use strict";
+
+/* ========================= utilities ========================= */
+const $ = id => document.getElementById(id);
+const esc = s => String(s==null?"":s).replace(/[&<>"']/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+// Ids are base-36 and indexes are integers, so neither needs escaping inside an inline handler.
+const q = s => "'" + s + "'";
+const p2 = n => String(n).padStart(2,"0");
+const num = v => { const n = parseFloat(v); return isFinite(n) ? n : null; };
+// Round half away from zero, to the penny. The epsilon absorbs 1.005 arriving as 1.00499999.
+const r2 = v => { const s = v<0 ? -1 : 1; return s*Math.round(Math.abs(v)*100 + 1e-7)/100; };
+const EPS = 0.004;
+
+// Three scales, as in Calc — but account figures are to the penny here, by request: this is a
+// ledger of real fills, not a sizing estimate.
+//   fmt$  every aggregate: value, buying power, credit, P/L, collateral.
+//   fmtP  anything per share — strike, credit, basis. Two to four decimals.
+const fmt$ = v => (v<-EPS?"-":"") + "$" + Math.abs(v).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
+const fmtP = v => (v<0?"-":"") + "$" + Math.abs(Number(v)).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:4});
+const sgn$ = v => (v>EPS?"+":"") + fmt$(v);
+const pct  = (v,d) => (v==null || !isFinite(v)) ? "—" : (v*100).toFixed(d==null?2:d) + "%";
+const spct = (v,d) => (v==null || !isFinite(v)) ? "—" : (v>0?"+":"") + pct(v,d);
+const cls  = v => v>EPS ? "pos" : v<-EPS ? "neg" : "";
+const fmtQ = v => Number(v).toLocaleString(undefined,{maximumFractionDigits:0});
+const plural = (n,w) => n + " " + w + (n===1 ? "" : "s");
+
+/* ---- dates: stored as YYYY-MM-DD, compared as whole UTC days so no timezone can shift a Friday ---- */
+const todayISO = () => { const d = new Date(); return d.getFullYear()+"-"+p2(d.getMonth()+1)+"-"+p2(d.getDate()); };
+const dnum = s => Date.UTC(+s.slice(0,4), +s.slice(5,7)-1, +s.slice(8,10)) / 864e5;
+const iso  = n => new Date(n*864e5).toISOString().slice(0,10);
+const daysBetween = (a,b) => Math.round(dnum(b) - dnum(a));
+const isFriday = s => new Date(dnum(s)*864e5).getUTCDay() === 5;
+const fmtD = s => s ? new Date(dnum(s)*864e5).toLocaleDateString(undefined,{month:"short",day:"numeric",timeZone:"UTC"}) : "";
+const fmtDY = s => s ? new Date(dnum(s)*864e5).toLocaleDateString(undefined,{month:"short",day:"numeric",year:"numeric",timeZone:"UTC"}) : "";
+// Today counts if it is a Friday: a put sold Friday morning for that afternoon is a real trade.
+function fridays(n){
+  const t = dnum(todayISO()), dow = new Date(t*864e5).getUTCDay();
+  const first = t + ((5 - dow + 7) % 7);
+  const out = [];
+  for(let i=0;i<n;i++) out.push(iso(first + 7*i));
+  return out;
+}
+const nextFriday = () => fridays(1)[0];
+
+// One week is the shortest period anything is annualized over. A Monday-to-Friday put ties the cash
+// up until the next Friday cycle whether it is held four days or seven, so pricing it as four days
+// would overstate it by almost double.
+const WEEK_FLOOR = 7;
+const weekly = (ret, days) => ret * 7 / Math.max(WEEK_FLOOR, days);
+const annual = (ret, days) => ret * 365 / Math.max(WEEK_FLOOR, days);
+
+/* ========================= state ========================= */
+const KEY = "wheel.v1";
+const SCHEMA = 1;
+const SECTIONS = ["acct","sel","new","open","closed","data"];
+let root = null;
+const uid = () => Date.now().toString(36).slice(-5) + Math.random().toString(36).slice(2,7);
+// A global sequence for every event. Same-day events sort by it, which is what keeps "assigned, then
+// the shares arrive" in that order.
+const nextN = () => (root.seq = (root.seq||0) + 1);
+
+function newAccount(name, start){
+  return { id:uid(), name:name||"Wheel", start: start==null ? 10000 : start, startDate: todayISO(),
+           fee:0.65, minWeekly:0.5, capital:null, flows:[], positions:[], cands:[] };
+}
+function newRoot(){
+  const a = newAccount("Wheel", 10000);
+  return { v:SCHEMA, seq:0, active:a.id, order:[a.id], accounts:{[a.id]:a}, collapsed:{} };
+}
+const acct = () => root.accounts[root.active];
+const findPos = pid => acct().positions.find(p=>p.id===pid);
+
+function load(){
+  try{
+    const raw = localStorage.getItem(KEY);
+    root = raw ? JSON.parse(raw) : null;
+  }catch(e){ root = null; }
+  normalize();
+}
+// Backfills every field added since v1, so an older save loads without a migration script.
+function normalize(){
+  if(!root || typeof root!=="object" || !root.accounts || typeof root.accounts!=="object" ||
+     !Object.keys(root.accounts).length) root = newRoot();
+  if(root.v==null) root.v = SCHEMA;
+  if(!root.collapsed || typeof root.collapsed!=="object") root.collapsed = {};
+  if(!Array.isArray(root.order)) root.order = [];
+  Object.keys(root.accounts).forEach(id=>{ if(root.order.indexOf(id)<0) root.order.push(id); });
+  root.order = root.order.filter((id,i)=>root.accounts[id] && root.order.indexOf(id)===i);
+  if(!root.accounts[root.active]) root.active = root.order[0];
+  const d = newAccount("x");
+  let maxN = root.seq || 0;
+  Object.keys(root.accounts).forEach(id=>{
+    const a = root.accounts[id];
+    a.id = id;
+    ["name","start","startDate","fee","minWeekly"].forEach(k=>{ if(a[k]==null) a[k] = d[k]; });
+    if(a.capital===undefined) a.capital = null;
+    ["flows","positions","cands"].forEach(k=>{ if(!Array.isArray(a[k])) a[k] = []; });
+    a.flows.forEach(f=>{ if(!f.id) f.id = uid(); maxN = Math.max(maxN, f.n||0); });
+    a.positions.forEach(p=>{
+      if(!p.id) p.id = uid();
+      if(!Array.isArray(p.legs)) p.legs = [];
+      if(!Array.isArray(p.shares)) p.shares = [];
+      if(p.carry==null) p.carry = 0;
+      p.legs.forEach(L=>{ maxN = Math.max(maxN, L.open.n||0, L.close ? (L.close.n||0) : 0); });
+      p.shares.forEach(S=>{ maxN = Math.max(maxN, S.n||0); });
+    });
+    a.cands.forEach(c=>{ if(!c.id) c.id = uid(); if(!(c.max>=1)) c.max = 1; });
+  });
+  root.seq = maxN;
+}
+
+// A save that fails silently leaves the screen right and the disk empty, and you find out at the
+// next reload. So failure is loud, and stays on screen until a save succeeds.
+let saveBroken = null;
+function save(){
+  try{
+    localStorage.setItem(KEY, JSON.stringify(root));
+    if(saveBroken){ saveBroken = null; renderSaveAlert(); }
+    return true;
+  }catch(e){
+    saveBroken = (e && e.name) || "error";
+    renderSaveAlert();
+    return false;
+  }
+}
+function renderSaveAlert(){
+  $("saveAlert").innerHTML = saveBroken
+    ? '<div class="banner red">Your last change was <b>not saved</b> &mdash; browser storage is full or blocked ('+
+      esc(saveBroken)+'). Everything on screen is correct, but none of it will survive a reload. Back it up now. '+
+      '<button class="small" style="margin-left:8px" onclick="rescue()">Export everything</button></div>'
+    : "";
+}
+// Deliberately does not touch localStorage: this runs precisely when localStorage is refusing.
+window.rescue = () => {
+  root.collapsed.data = false; renderSections();
+  $("io").value = JSON.stringify(root,null,1);
+  $("sec-data").scrollIntoView({block:"start"});
+  $("io").select();
+  $("io_err").className = "okmsg";
+  $("io_err").textContent = "Everything is in the box. Copy it out and keep it before you reload.";
+};
+
+/* ========================= the ledger =========================
+   A position is a list of option legs and a list of share trades. Nothing derived is stored:
+   every figure below is rebuilt from those two lists on each render, so there is no running total
+   that can drift out of step with the events that produced it.
+
+   Leg:   { id, type:"put"|"call", side:"short"|"long", strike, exp, qty,
+            open:{date, price, fees, n}, close:null | {how, date, price, fees, n}, of? }
+   Share: { id, side:"buy"|"sell", date, qty, price, fees, n, via? }
+
+   how:  btc     bought back              stc        long put sold
+         btcbuy  bought back, and shares bought alongside
+         expired                          assigned   put: shares arrive / call: shares leave
+         exercised  long put: shares sold at strike
+
+   Accounting, one rule each:
+   - An option leg's P/L is realized the day it closes — including on assignment, when its premium
+     lands in the account and, through the basis, comes off the shares.
+   - Share cost is average cost, with purchase and assignment fees folded in. A share sale realizes
+     proceeds less fees less that average cost.
+   - Adjusted basis is what is still in the position per share held:
+       (shares at cost − option P/L banked − share P/L banked − premium carried in) ÷ shares.
+     When the last share goes, that numerator is exactly minus the position's total P/L.
+*/
+const OPEN_PRICE_HOWS = { btc:1, btcbuy:1, stc:1 };
+function legPL(L){
+  const m = 100*L.qty, o = L.open.price*m;
+  const c = OPEN_PRICE_HOWS[L.close.how] ? L.close.price*m : 0;
+  const f = L.open.fees + (L.close.fees||0);
+  return r2(L.side==="short" ? o - c - f : c - o - f);
+}
+const legName = L => fmtP(L.strike) + " " + L.type + " " + fmtD(L.exp);
+const legKind = L => (L.side==="short" ? "Short " : "Long ") + L.type;
+function closeText(L){
+  const h = L.close.how;
+  const w = h==="btc" ? "Bought back" : h==="btcbuy" ? "Bought back, shares bought" : h==="stc" ? "Sold" :
+            h==="expired" ? "Expired" : h==="exercised" ? "Exercised" :
+            (L.type==="put" ? "Assigned" : "Called away");
+  return w + " " + L.qty + " " + legName(L);
+}
+function closeCash(L){
+  const m = 100*L.qty, f = L.close.fees||0;
+  if(L.close.how==="btc" || L.close.how==="btcbuy") return -(L.close.price*m) - f;
+  if(L.close.how==="stc") return L.close.price*m - f;
+  return -f;
+}
+const VIA = { assign:" — assignment", callaway:" — called away", exercise:" — put exercised", combo:" — with the buyback", carry:" — brought in" };
+
+function derivePos(p){
+  const ev = [];
+  p.legs.forEach(L=>{
+    ev.push({n:L.open.n, date:L.open.date, k:"open", L});
+    if(L.close) ev.push({n:L.close.n, date:L.close.date, k:"close", L});
+  });
+  p.shares.forEach(S=>ev.push({n:S.n, date:S.date, k:"sh", S}));
+  ev.sort((x,y)=> x.date<y.date ? -1 : x.date>y.date ? 1 : x.n - y.n);
+
+  let sh=0, cost=0, rOpt=0, rSh=0, coll=0, peak=0;
+  const rows = [], rev = [];
+  ev.forEach(e=>{
+    if(e.k==="open"){
+      const L = e.L, amt = L.open.price*100*L.qty;
+      if(L.side==="short" && L.type==="put") coll += L.strike*100*L.qty;
+      rows.push({date:e.date, n:e.n, k:"open", id:L.id,
+        text:(L.side==="short" ? "Sold " : "Bought ") + L.qty + " " + legName(L),
+        price:L.open.price, fees:L.open.fees,
+        cash:r2(L.side==="short" ? amt - L.open.fees : -amt - L.open.fees), pl:null});
+    } else if(e.k==="close"){
+      const L = e.L, pl = legPL(L);
+      rOpt += pl;
+      rev.push({date:e.date, n:e.n, amt:pl, sym:p.sym});
+      if(L.side==="short" && L.type==="put") coll -= L.strike*100*L.qty;
+      rows.push({date:e.date, n:e.n, k:"close", id:L.id, text:closeText(L),
+        price:OPEN_PRICE_HOWS[L.close.how] ? L.close.price : null, fees:L.close.fees||0,
+        cash:r2(closeCash(L)), pl});
+    } else {
+      const S = e.S;
+      if(S.side==="buy"){
+        sh += S.qty; cost += S.qty*S.price + S.fees;
+        rows.push({date:e.date, n:e.n, k:"sh", id:S.id, via:S.via, text:"Bought " + fmtQ(S.qty) + " sh" + (VIA[S.via]||""),
+          price:S.price, fees:S.fees, cash:r2(-(S.qty*S.price + S.fees)), pl:null});
+      } else {
+        const avg = sh>0 ? cost/sh : 0, c = avg*S.qty, pl = r2(S.qty*S.price - S.fees - c);
+        cost -= c; sh -= S.qty; rSh += pl;
+        rev.push({date:e.date, n:e.n, amt:pl, sym:p.sym});
+        rows.push({date:e.date, n:e.n, k:"sh", id:S.id, via:S.via, text:"Sold " + fmtQ(S.qty) + " sh" + (VIA[S.via]||""),
+          price:S.price, fees:S.fees, cash:r2(S.qty*S.price - S.fees), pl});
+      }
+      if(Math.abs(sh) < 1e-9){ sh = 0; cost = 0; }
+    }
+    peak = Math.max(peak, cost + coll);
+  });
+
+  const openLegs = p.legs.filter(L=>!L.close);
+  let longc = 0, sfees = 0, nPutC = 0, nCallC = 0, nLongC = 0;
+  openLegs.forEach(L=>{
+    if(L.side==="long"){ longc += L.open.price*100*L.qty + L.open.fees; nLongC += L.qty; }
+    else { sfees += L.open.fees; if(L.type==="put") nPutC += L.qty; else nCallC += L.qty; }
+  });
+  const flat = sh===0 && openLegs.length===0;
+  const first = ev.length ? ev[0].date : todayISO();
+  const last  = ev.length ? ev[ev.length-1].date : first;
+  const days  = Math.max(0, daysBetween(first, flat ? last : todayISO()));
+  const carry = p.carry || 0;
+  const real  = r2(rOpt + rSh);            // what reaches the account
+  const total = r2(real + carry);          // what the position has earned, including before it was tracked here
+  const roe   = peak>0 ? total/peak : null;
+
+  // The first short put, and any pieces it was split into by a partial close. Its return on the cash
+  // it held is the number the whole cycle starts from.
+  let fp = null;
+  const sp = p.legs.filter(L=>L.type==="put" && L.side==="short");
+  if(sp.length){
+    const n0 = Math.min.apply(null, sp.map(L=>L.open.n));
+    const fam = sp.filter(L=>L.open.n===n0), L0 = fam[0];
+    let qty = 0, net = 0, end = L0.open.date, open = false, hows = {};
+    fam.forEach(L=>{
+      qty += L.qty;
+      if(L.close){ net += legPL(L); hows[L.close.how] = 1; if(L.close.date > end) end = L.close.date; }
+      else { open = true; net += L.open.price*100*L.qty - L.open.fees; if(L.exp > end) end = L.exp; }
+    });
+    const fcoll = L0.strike*100*qty, fdays = Math.max(0, daysBetween(L0.open.date, end));
+    fp = { L:L0, qty, net:r2(net), coll:fcoll, days:fdays, open, hows:Object.keys(hows),
+           roe: net/fcoll, ann: annual(net/fcoll, fdays) };
+  }
+
+  return { sh, cost, avg: sh>0 ? cost/sh : null, adj: sh>0 ? (cost - rOpt - rSh - carry)/sh : null,
+           rOpt:r2(rOpt), rSh:r2(rSh), real, carry, total, coll, peak, capNow: cost + coll + longc,
+           longc, sfees, nPutC, nCallC, nLongC, openLegs, flat, first, last, days,
+           roe, ann: roe==null ? null : annual(roe, days), fp, rows, rev };
+}
+
+// How a finished position got where it did, in the order it happened.
+function pathOf(p){
+  const fams = (type, side) => { const s = {}; p.legs.forEach(L=>{ if(L.type===type && L.side===side) s[L.open.n] = 1; }); return Object.keys(s).length; };
+  const any = f => p.legs.some(f);
+  const puts = fams("put","short"), calls = fams("call","short"), longs = fams("put","long");
+  const out = [];
+  if(p.carry || p.shares.some(S=>S.via==="carry")) out.push("brought in");
+  if(puts) out.push(plural(puts,"put"));
+  if(any(L=>L.type==="put" && L.side==="short" && L.close && L.close.how==="assigned")) out.push("assigned");
+  if(any(L=>L.close && L.close.how==="btcbuy")) out.push("bought back + shares");
+  if(!p.shares.length){
+    const hows = {}; p.legs.forEach(L=>{ if(L.close) hows[L.close.how] = 1; });
+    if(hows.expired) out.push("expired");
+    if(hows.btc) out.push("bought back");
+  } else if(p.shares.some(S=>S.side==="buy" && !S.via) && !p.shares.some(S=>S.via==="carry")) out.push("shares bought");
+  if(calls) out.push(plural(calls,"call"));
+  if(longs) out.push(plural(longs,"long put"));
+  if(any(L=>L.type==="call" && L.close && L.close.how==="assigned")) out.push("called away");
+  if(any(L=>L.close && L.close.how==="exercised")) out.push("put exercised");
+  if(p.shares.some(S=>S.side==="sell" && !S.via)) out.push("shares sold");
+  return out.join(" → ");
+}
+
+function deriveAcct(a){
+  const o = { flows:0, real:0, cost:0, coll:0, longc:0, sfees:0, nPutC:0, nHold:0,
+              unreal:0, marked:0, unmarked:0, open:[], closed:[], points:[] };
+  a.flows.forEach(f=>{ o.flows += f.amount; o.points.push({date:f.date, n:f.n||0, amt:f.amount}); });
+  a.positions.forEach(p=>{
+    const d = derivePos(p);
+    o.real += d.real; o.cost += d.cost; o.coll += d.coll; o.longc += d.longc; o.sfees += d.sfees; o.nPutC += d.nPutC;
+    if(d.sh>0){
+      o.nHold++;
+      if(p.mark>0){ o.unreal += (p.mark - d.avg)*d.sh; o.marked++; } else o.unmarked++;
+    }
+    d.rev.forEach(e=>o.points.push(e));
+    (d.flat ? o.closed : o.open).push({p, d});
+  });
+  o.flows = r2(o.flows); o.real = r2(o.real);
+  o.value = r2(a.start + o.flows + o.real);
+  // Free cash, conservatively: premium on a short option still open is not counted until it closes.
+  o.bp = r2(o.value - o.cost - o.coll - o.longc - o.sfees);
+  return o;
+}
+
+/* ========================= actions on a position =========================
+   Each returns an error string or null. They run on the real position to record, and on a throwaway
+   copy to preview — the preview is the same code, so it cannot disagree with what gets recorded. */
+function addLeg(p, f){
+  p.legs.push({ id:uid(), type:f.type, side:f.side, strike:f.strike, exp:f.exp, qty:f.qty,
+                open:{ date:f.date, price:f.price, fees:f.fees, n:nextN() }, close:null });
+  return null;
+}
+function addShares(p, f){
+  if(f.side==="sell"){
+    const d = derivePos(p);
+    if(f.qty > d.sh + 1e-9) return "You hold " + fmtQ(d.sh) + " shares — you can't sell " + fmtQ(f.qty) + ".";
+  }
+  p.shares.push({ id:uid(), side:f.side, date:f.date, qty:f.qty, price:f.price, fees:f.fees, n:nextN(), via:f.via||null });
+  return null;
+}
+function closeLeg(p, lid, f){
+  let L = p.legs.find(x=>x.id===lid);
+  if(!L || L.close) return "That leg is already closed.";
+  if(!(f.qty>=1) || f.qty>L.qty || Math.floor(f.qty)!==f.qty) return "Contracts must be a whole number from 1 to " + L.qty + ".";
+  if(f.date < L.open.date) return "It can't close before it opened (" + fmtDY(L.open.date) + ").";
+  const shq = 100*f.qty;
+  if((f.how==="assigned" && L.type==="call") || f.how==="exercised"){
+    const have = derivePos(p).sh;
+    if(have < shq - 1e-9) return "That delivers " + fmtQ(shq) + " shares and the position holds " + fmtQ(have) + ".";
+  }
+  // A partial close splits the leg: the closed piece becomes its own leg carrying its share of the
+  // opening fees, and the remainder stays open under the original id.
+  if(f.qty < L.qty){
+    const N = JSON.parse(JSON.stringify(L));
+    N.id = uid(); N.of = L.of || L.id; N.qty = f.qty;
+    N.open.fees = r2(L.open.fees * f.qty / L.qty);
+    L.open.fees = r2(L.open.fees - N.open.fees);
+    L.qty -= f.qty;
+    p.legs.push(N);
+    L = N;
+  }
+  L.close = { how:f.how, date:f.date, price: OPEN_PRICE_HOWS[f.how] ? f.price : 0,
+              fees: (f.how==="assigned" || f.how==="exercised") ? 0 : (f.fees||0), n:nextN() };
+  // Assignment and exercise fees ride on the share trade, so they land in the share cost (or come
+  // off the proceeds) rather than in the option's P/L.
+  if(f.how==="assigned" && L.type==="put")
+    addShares(p, {side:"buy", date:f.date, qty:shq, price:L.strike, fees:f.fees||0, via:"assign"});
+  else if(f.how==="assigned" && L.type==="call")
+    addShares(p, {side:"sell", date:f.date, qty:shq, price:L.strike, fees:f.fees||0, via:"callaway"});
+  else if(f.how==="exercised")
+    addShares(p, {side:"sell", date:f.date, qty:shq, price:L.strike, fees:f.fees||0, via:"exercise"});
+  else if(f.how==="btcbuy")
+    addShares(p, {side:"buy", date:f.date, qty:f.shQty||shq, price:f.shPrice, fees:f.shFees||0, via:"combo"});
+  L.close.link = (f.how==="assigned" || f.how==="exercised" || f.how==="btcbuy") ? p.shares[p.shares.length-1].id : null;
+  return null;
+}
+const clone = o => JSON.parse(JSON.stringify(o));
+// Run an action on a copy and return the copy's figures, or {err}.
+function simulate(p, fn){
+  const c = clone(p), seq = root.seq;
+  const err = fn(c);
+  root.seq = seq;
+  return err ? {err} : derivePos(c);
+}
+
+/* ========================= render ========================= */
+function render(){
+  renderTabs();
+  syncInputs();
+  renderAccount();
+  renderSelTable();
+  updateNP();
+  renderOpen();
+  renderClosed();
+  renderSections();
+}
+
+function renderSections(){
+  SECTIONS.forEach(k=>{
+    const shut = !!root.collapsed[k];
+    const b = $("body_"+k), t = $("tg_"+k);
+    if(b) b.style.display = shut ? "none" : "";
+    if(t) t.innerHTML = shut ? "&#9656;" : "&#9662;";
+  });
+}
+window.toggleSection = k => { root.collapsed[k] = !root.collapsed[k]; save(); renderSections(); };
+
+// Never write into the field you are typing in.
+function setVal(id, v){ const el = $(id); if(el && document.activeElement!==el) el.value = v; }
+function syncInputs(){
+  const a = acct();
+  setVal("s_start", a.start); setVal("s_startDate", a.startDate);
+  setVal("s_fee", a.fee); setVal("s_min", a.minWeekly);
+  setVal("sel_cap", a.capital==null ? "" : a.capital);
+}
+
+function renderTabs(){
+  $("tabs").innerHTML = root.order.map(id=>
+      '<button class="small'+(id===root.active?" primary":"")+'" onclick="switchAcct('+q(id)+')">'+esc(root.accounts[id].name)+'</button>'
+    ).join("") +
+    '<span class="tabsep" aria-hidden="true"></span>' +
+    '<button class="small" title="New account" onclick="addAcct()">+</button>' +
+    '<button class="small" title="Rename this account" onclick="renameAcct()">Rename</button>' +
+    (root.order.length>1 ? '<button class="small danger" title="Delete this account" onclick="deleteAcct()">&#10005;</button>' : "");
+}
+
+const metric = (k, v, r, c) => '<div class="metric"><div class="k">'+k+'</div><div class="v '+(c||"")+'">'+v+'</div>'+
+  (r ? '<div class="r">'+r+'</div>' : "") + '</div>';
+
+function renderAccount(){
+  const a = acct(), d = deriveAcct(a);
+  const cap0 = a.start + d.flows;
+  $("acctSummary").innerHTML = esc(a.name) + VBAR + fmt$(d.value) + VBAR + fmt$(d.bp) + " free";
+  let tiles =
+    metric("Account value", fmt$(d.value), "started " + fmt$(a.start) + (Math.abs(d.flows)>EPS ? ", net deposits " + sgn$(d.flows) : "")) +
+    metric("Closed P/L", sgn$(d.real), spct(cap0>0 ? d.real/cap0 : null) + " on capital put in", cls(d.real)) +
+    metric("Buying power", fmt$(d.bp), pct(d.value>0 ? d.bp/d.value : null, 1) + " of value free", d.bp<-EPS ? "neg" : "gold") +
+    metric("Shares at cost", fmt$(d.cost), d.nHold ? plural(d.nHold,"holding") : "none held") +
+    metric("Put collateral", fmt$(d.coll), d.nPutC ? plural(d.nPutC,"short put contract") : "no short puts open");
+  if(d.nHold){
+    tiles += metric("Value at marks", d.marked ? fmt$(d.value + d.unreal) : "—",
+      d.marked ? "shares " + sgn$(d.unreal) + " vs cost" + (d.unmarked ? ", " + d.unmarked + " unmarked" : "")
+               : "enter a last price on a position");
+  }
+  $("acctStats").innerHTML = tiles;
+
+  // The answer box: the highest strike one more cash-secured put can carry.
+  const bp = d.bp;
+  let h;
+  if(bp < 100){
+    h = '<div class="calans" style="color:var(--amber)">No room for another put</div>' +
+        '<div class="calsub">' + (bp<-EPS
+          ? 'Buying power is <b>' + fmt$(bp) + '</b> &mdash; more is committed than the account holds. Usually a missing deposit or a fill typed wrong.'
+          : 'Buying power is <b>' + fmt$(bp) + '</b>, under the $100 a single $1 strike would need.') + '</div>';
+  } else {
+    const m = n => Math.floor(bp/(100*n)*100)/100;
+    h = '<div class="calans">Max put strike ' + fmtP(m(1)) + '</div>' +
+        '<div class="calsub"><b>' + fmt$(bp) + '</b> free &divide; 100 shares a contract. Two contracts: up to <b>' + fmtP(m(2)) +
+        '</b> each' + VBAR + 'three: <b>' + fmtP(m(3)) + '</b>' + VBAR + 'five: <b>' + fmtP(m(5)) + '</b>.</div>';
+  }
+  const parts = [fmt$(d.value) + " value"];
+  if(d.cost>EPS)  parts.push(fmt$(d.cost) + " in shares");
+  if(d.coll>EPS)  parts.push(fmt$(d.coll) + " put collateral");
+  if(d.longc>EPS) parts.push(fmt$(d.longc) + " in long puts");
+  if(d.sfees>EPS) parts.push(fmt$(d.sfees) + " fees on open legs");
+  h += '<div class="calsub calrule">' + parts.join(" &minus; ") + " = " + fmt$(bp) +
+       '. Premium on short options still open is left out until they close &mdash; it is not yours yet.</div>';
+  $("maxBox").innerHTML = h;
+
+  $("flowsCount").textContent = a.flows.length ? "(" + a.flows.length + ", net " + sgn$(d.flows) + ")" : "";
+  $("flowsTbl").innerHTML = a.flows.length
+    ? '<tr><th>Date</th><th class="num">Amount</th><th>Note</th><th></th></tr>' +
+      a.flows.slice().sort((x,y)=>x.date<y.date?-1:x.date>y.date?1:0).map(f=>
+        '<tr><td class="nw">'+fmtDY(f.date)+'</td><td class="num '+cls(f.amount)+'">'+sgn$(f.amount)+'</td><td>'+esc(f.note||"")+
+        '</td><td class="num"><button class="x" title="Remove" onclick="delFlow('+q(f.id)+')">&#10005;</button></td></tr>').join("")
+    : "";
+}
+const VBAR = '<span class="vbar">|</span>';
+
+/* ---------------- 02 · Put Selector ---------------- */
+function candCap(a, d){ return a.capital!=null ? a.capital : Math.max(0, d.bp); }
+function selRows(a, cap){
+  const today = todayISO();
+  return a.cands.map((c,i)=>{
+    const strike = num(c.strike), credit = num(c.credit);
+    const max = Math.max(1, Math.floor(num(c.max)||1));
+    const r = {i, c, strike, credit, max, exp:c.exp, ok:false, why:""};
+    if(!(strike>0) || !(credit>0) || !c.exp){ r.why = "incomplete"; return r; }
+    r.coll = strike*100; r.net = credit*100 - a.fee;
+    r.days = daysBetween(today, c.exp);
+    r.roc = r.net / r.coll; r.wk = weekly(r.roc, r.days); r.ann = annual(r.roc, r.days);
+    r.val = r.net * 7 / Math.max(WEEK_FLOOR, r.days);    // net credit per week-equivalent
+    if(r.days < 0) r.why = "expired";
+    else if(r.net <= 0) r.why = "fees eat it";
+    else if(r.wk*100 < a.minWeekly - 1e-9) r.why = "below " + a.minWeekly + "%";
+    else if(r.coll > cap + 1e-9) r.why = "too big";
+    else r.ok = true;
+    return r;
+  });
+}
+
+// Bounded knapsack: the whole-contract mix with the most weekly net credit whose collateral fits.
+// Collateral is counted in units of the largest common step of every strike, so $40/$60/$100
+// strikes run in $1,000 units and the table stays small. If capital is enormous relative to that
+// step, units are coarsened and each strike's collateral rounded UP — the answer can then miss by a
+// sliver, but it can never spend more than you have.
+const gcd = (x,y) => { while(y){ const t = y; y = x % y; x = t; } return x; };
+function knapsack(items, cap){
+  const cents = items.map(it=>Math.round(it.w*100));
+  const g = cents.reduce(gcd, 0) || 1, capC = Math.round(cap*100);
+  const LIM = 200000;
+  let unit = g, capU = Math.floor(capC/unit), approx = false;
+  if(capU > LIM){ unit = g*Math.ceil(capU/LIM); capU = Math.floor(capC/unit); approx = true; }
+  const wU = cents.map(c=>Math.ceil(c/unit));
+  const parts = [];
+  items.forEach((it,i)=>{
+    let k = 1, left = it.max;
+    while(left>0){ const t = Math.min(k,left); parts.push({i, cnt:t, w:wU[i]*t, v:it.v*t}); left -= t; k *= 2; }
+  });
+  const dp = new Float64Array(capU+1), take = parts.map(()=>new Uint8Array(capU+1));
+  parts.forEach((pt,j)=>{
+    const T = take[j];
+    for(let c=capU; c>=pt.w; c--){
+      const nv = dp[c-pt.w] + pt.v;
+      if(nv > dp[c] + 1e-9){ dp[c] = nv; T[c] = 1; }
+    }
+  });
+  const cnt = items.map(()=>0);
+  let c = capU;
+  for(let j=parts.length-1; j>=0; j--) if(take[j][c]){ cnt[parts[j].i] += parts[j].cnt; c -= parts[j].w; }
+  return {cnt, approx};
+}
+
+function expOptions(sel){
+  const fr = fridays(8);
+  if(sel && fr.indexOf(sel)<0) fr.unshift(sel);
+  return fr.map(f=>'<option value="'+f+'"'+(f===sel?" selected":"")+'>'+fmtD(f)+(isFriday(f)?"":" (not a Fri)")+'</option>').join("");
+}
+function renderSelTable(){
+  const a = acct();
+  if(!a.cands.length){
+    $("selTbl").innerHTML = '<tr><td class="muted" style="border:0;padding-left:0">No puts listed. Add the ones you are weighing this week &mdash; symbol, strike, the credit you expect, and the Friday.</td></tr>';
+    selCompute(); return;
+  }
+  $("selTbl").innerHTML =
+    '<tr><th>Symbol</th><th>Strike</th><th>Credit</th><th>Expiry</th><th title="Most contracts you would sell of this one">Max qty</th>' +
+    '<th class="num">Collateral</th><th class="num">Net / contract</th><th class="num">Weekly</th><th class="num">Annualized</th><th>Pick</th><th></th></tr>' +
+    a.cands.map((c,i)=>
+      '<tr><td class="sym"><input value="'+esc(c.sym||"")+'" oninput="candSet('+i+',\'sym\',this.value)" placeholder="xyz"></td>' +
+      '<td><input type="number" step="any" value="'+esc(c.strike==null?"":c.strike)+'" oninput="candSet('+i+',\'strike\',this.value)" placeholder="40"></td>' +
+      '<td><input type="number" step="any" value="'+esc(c.credit==null?"":c.credit)+'" oninput="candSet('+i+',\'credit\',this.value)" placeholder="0.40"></td>' +
+      '<td><select oninput="candSet('+i+',\'exp\',this.value)">'+expOptions(c.exp)+'</select></td>' +
+      '<td><input type="number" step="1" min="1" value="'+esc(c.max)+'" oninput="candSet('+i+',\'max\',this.value)" style="min-width:54px;width:64px"></td>' +
+      '<td class="num" id="cc_coll_'+i+'"></td><td class="num" id="cc_net_'+i+'"></td><td class="num" id="cc_wk_'+i+'"></td>' +
+      '<td class="num" id="cc_ann_'+i+'"></td><td id="cc_st_'+i+'"></td>' +
+      '<td class="num"><button class="x" title="Remove" onclick="delCand('+i+')">&#10005;</button></td></tr>'
+    ).join("");
+  selCompute();
+}
+window.addCand = () => {
+  const a = acct(), last = a.cands[a.cands.length-1];
+  a.cands.push({id:uid(), sym:"", strike:null, credit:null, exp: last ? last.exp : nextFriday(), max:1});
+  save(); renderSelTable();
+  const ins = $("selTbl").querySelectorAll("tr:last-child input");
+  if(ins[0]) ins[0].focus();
+};
+window.delCand = i => { acct().cands.splice(i,1); save(); renderSelTable(); };
+window.clearCands = () => {
+  const a = acct();
+  if(!a.cands.length || !confirm("Clear all " + a.cands.length + " puts from the list?")) return;
+  a.cands = []; save(); renderSelTable();
+};
+// Updates state and the computed cells only — rebuilding the rows would steal focus mid-keystroke.
+window.candSet = (i, k, v) => {
+  const c = acct().cands[i];
+  if(!c) return;
+  if(k==="sym") c.sym = v.trim().toUpperCase();
+  else if(k==="exp") c.exp = v;
+  else if(k==="max") c.max = Math.max(1, Math.floor(num(v)||1));
+  else c[k] = num(v);
+  save(); selCompute();
+};
+
+let lastPicks = [];
+function selCompute(){
+  const a = acct(), d = deriveAcct(a), bp = Math.max(0, d.bp), cap = candCap(a, d);
+  $("sel_cap").placeholder = bp.toFixed(2);
+  $("selCapNote").innerHTML = a.capital==null
+    ? "Blank uses all free buying power, " + fmt$(bp) + "."
+    : (a.capital > bp + EPS ? '<span style="color:var(--amber)">More than the ' + fmt$(bp) + ' free &mdash; flagged, not stopped.</span>'
+                            : "Holding back " + fmt$(bp - a.capital) + " of " + fmt$(bp) + " free.");
+  const rows = selRows(a, cap);
+  const elig = rows.filter(r=>r.ok);
+  const k = elig.length ? knapsack(elig.map(r=>({w:r.coll, v:r.val, max:r.max})), cap) : {cnt:[], approx:false};
+  const take = {};
+  elig.forEach((r,j)=>{ if(k.cnt[j]) take[r.i] = k.cnt[j]; });
+
+  rows.forEach(r=>{
+    const set = (id, h) => { const el = $(id+r.i); if(el) el.innerHTML = h; };
+    set("cc_coll_", r.coll ? fmt$(r.coll) : "");
+    set("cc_net_",  r.net!=null ? '<span class="'+cls(r.net)+'">'+fmt$(r.net)+'</span>' : "");
+    set("cc_wk_",   r.wk!=null ? pct(r.wk) : "");
+    set("cc_ann_",  r.ann!=null ? pct(r.ann,1) : "");
+    set("cc_st_",   take[r.i] ? '<span class="pill good">take '+take[r.i]+'</span>'
+                  : r.ok ? '<span class="pill plain">pass</span>'
+                  : r.why==="incomplete" ? "" : '<span class="pill warn">'+esc(r.why)+'</span>');
+  });
+
+  const picks = elig.map(r=>({r, n:take[r.i]||0})).filter(x=>x.n>0);
+  lastPicks = picks;
+  const out = $("selOut");
+  $("selSummary").textContent = a.cands.length ? plural(a.cands.length,"put") + " listed" + (picks.length ? ", " + picks.length + " picked" : "") : "";
+  if(!a.cands.length){ out.innerHTML = ""; return; }
+  if(!picks.length){
+    const why = rows.filter(r=>!r.ok && r.why!=="incomplete");
+    out.innerHTML = '<div class="calbox"><div class="calans" style="color:var(--amber)">Nothing to sell</div><div class="calsub">' +
+      (cap < 100 ? "There is no capital to put up &mdash; " + fmt$(cap) + " free."
+       : why.length ? "Every complete row is out: " + why.map(r=>esc(r.c.sym||"?")+" "+esc(r.why)).join(", ") + "."
+       : "Fill in strike, credit and expiry on at least one row.") + '</div></div>';
+    return;
+  }
+  let used = 0, gross = 0, fees = 0, val = 0;
+  picks.forEach(x=>{ used += x.r.coll*x.n; gross += x.r.credit*100*x.n; fees += a.fee*x.n; val += x.r.val*x.n; });
+  const net = gross - fees, left = cap - used;
+  const exps = {}; picks.forEach(x=>exps[x.r.exp] = 1);
+  const oneExp = Object.keys(exps).length===1;
+  // The strongest single contract, to say what the mix is worth over the obvious choice.
+  const best = elig.filter(r=>r.coll <= cap + 1e-9).sort((x,y)=>y.val-x.val)[0];
+  let vs = "";
+  if(best && !(picks.length===1 && picks[0].n===1)){
+    const allSame = elig.every(r=>r.exp===best.exp) && oneExp;
+    const gain = allSame ? net - best.net : val - best.val;
+    if(gain > EPS) vs = '<div class="calsub">Beats the best single contract &mdash; ' + esc(best.c.sym||"?") + " " + fmtP(best.strike) +
+      " put for " + fmt$(best.net) + " net &mdash; by <b>" + fmt$(gain) + "</b>" + (allSame ? "" : " a week") + ".</div>";
+  }
+  const lines = picks.map(x=>{
+    const r = x.r;
+    return '<div class="pick"><span class="w">' + x.n + "&times; " + esc(r.c.sym||"?") + " <b>" + fmtP(r.strike) + "</b> put " + fmtD(r.exp) +
+      " @ " + fmtP(r.credit) + '</span><span class="muted">' + fmt$(r.coll*x.n) + " collateral" + VBAR + fmt$(r.net*x.n) + " net" + VBAR +
+      pct(r.wk) + " a week</span>" + '<button class="small" style="margin-left:auto" onclick="pickToForm(' + picks.indexOf(x) + ')">Sell</button></div>';
+  }).join("");
+  out.innerHTML = '<div class="calbox"><div class="calans">Sell ' + plural(picks.reduce((s,x)=>s+x.n,0),"contract") + " for " + fmt$(net) + " net</div>" +
+    '<div class="calsub">' + fmt$(gross) + " credit less " + fmt$(fees) + " fees on <b>" + fmt$(used) + "</b> of " + fmt$(cap) + " &mdash; <b>" +
+    pct(used>0 ? (oneExp ? weekly(net/used, picks[0].r.days) : val/used) : null) + "</b> a week on the cash used, " +
+    pct(used>0 ? (oneExp ? annual(net/used, picks[0].r.days) : val/used*365/7) : null,1) + " annualized.</div>" + vs +
+    '<div class="calrule">' + lines + "</div>" +
+    '<div class="calsub calrule">Leaves ' + fmt$(left) + (left >= 100 ? " &mdash; room for one more put up to " + fmtP(Math.floor(left)/100) + " strike." : ".") +
+    (oneExp ? "" : " Expiries differ, so the picks are ranked on credit per week.") +
+    (k.approx ? " Capital is large next to the strike steps, so collateral was rounded up to a coarser unit; the mix may leave a little on the table." : "") +
+    "</div></div>";
+}
+window.pickToForm = i => {
+  const x = lastPicks[i]; if(!x) return;
+  const r = x.r;
+  $("np_sym").value = r.c.sym || ""; $("np_strike").value = r.strike; $("np_exp").value = r.exp;
+  $("np_qty").value = x.n; $("np_credit").value = r.credit;
+  $("np_fees").dataset.touched = ""; autoFee("np_qty","np_fees");
+  root.collapsed.new = false; renderSections();
+  updateNP();
+  $("sec-new").scrollIntoView({block:"start"});
+};
+
+/* ---------------- 03 · Sell a Put ---------------- */
+function autoFee(qid, fid){
+  const f = $(fid), n = num($(qid).value);
+  if(f && f.dataset.auto==="1" && !f.dataset.touched && n>0) f.value = r2(n*acct().fee).toFixed(2);
+}
+function npRead(){
+  return { sym: $("np_sym").value.trim().toUpperCase(), strike: num($("np_strike").value), exp: $("np_exp").value,
+           qty: num($("np_qty").value), credit: num($("np_credit").value), fees: num($("np_fees").value)||0,
+           date: $("np_date").value || todayISO(), into: $("np_into").value };
+}
+function updateNP(){
+  const a = acct(), d = deriveAcct(a), f = npRead();
+  // Adding to an open position of the same symbol is how you average down; offer each one.
+  const same = d.open.filter(x=>x.p.sym===f.sym);
+  const cur = $("np_into").value;
+  $("np_into").innerHTML = '<option value="">New position</option>' + same.map(x=>
+    '<option value="'+x.p.id+'"'+(x.p.id===cur?" selected":"")+'>Add to '+esc(x.p.sym)+(x.d.sh ? " — "+fmtQ(x.d.sh)+" sh" : " — open put")+'</option>').join("");
+  const box = $("np_prev");
+  if(!(f.strike>0 && f.qty>=1 && f.credit>0 && f.exp)){ box.innerHTML = ""; return; }
+  const coll = f.strike*100*f.qty, net = f.credit*100*f.qty - f.fees, days = daysBetween(f.date, f.exp);
+  const roc = net/coll, wk = weekly(roc, days), ann = annual(roc, days);
+  let h = '<div class="calbox"><div class="calans">Collect ' + fmt$(net) + " on " + fmt$(coll) + " collateral</div>" +
+    '<div class="calsub"><b>' + pct(roc) + "</b> on the cash over " + plural(Math.max(0,days),"day") + VBAR + "<b>" + pct(wk) +
+    "</b> a week" + VBAR + "<b>" + pct(ann,1) + "</b> annualized, simple.</div>";
+  const into = f.into ? a.positions.find(p=>p.id===f.into) : null;
+  if(into){
+    const s = simulate(into, c=>{
+      addLeg(c, {type:"put", side:"short", strike:f.strike, exp:f.exp, qty:f.qty, date:f.date, price:f.credit, fees:f.fees});
+      return closeLeg(c, c.legs[c.legs.length-1].id, {how:"assigned", date:f.exp < f.date ? f.date : f.exp, qty:f.qty, fees:0});
+    });
+    if(!s.err) h += '<div class="calsub">If assigned: ' + fmtQ(s.sh) + " shares, basis <b>" + fmtP(s.adj) + "</b>" +
+      (derivePos(into).adj!=null ? " (from " + fmtP(derivePos(into).adj) + ")" : "") + ".</div>";
+  }
+  h += '<div class="calsub calrule">Buying power ' + fmt$(d.bp) + " &rarr; " + fmt$(d.bp - coll - f.fees) + " once sold.</div></div>";
+  if(coll > d.bp + EPS) h += '<div class="flag red">That is ' + fmt$(coll - d.bp) + " more collateral than you have free. Your call &mdash; nothing here stops you.</div>";
+  if(wk*100 < a.minWeekly - 1e-9) h += '<div class="flag amber">Below your ' + a.minWeekly + "% weekly minimum.</div>";
+  if(days < 0) h += '<div class="flag red">Expiry is before the sale date.</div>';
+  else if(!isFriday(f.exp)) h += '<div class="flag mut">Expiry isn\'t a Friday &mdash; fine for a holiday week, worth a second look otherwise.</div>';
+  box.innerHTML = h;
+}
+function recordNP(){
+  const a = acct(), f = npRead();
+  $("np_err").textContent = ""; $("np_ok").textContent = "";
+  const err = !f.sym ? "Symbol is missing." : !(f.strike>0) ? "Strike must be above zero." :
+    !(f.qty>=1) || Math.floor(f.qty)!==f.qty ? "Contracts must be a whole number." : !(f.credit>0) ? "Credit must be above zero." :
+    !f.exp ? "Expiry is missing." : daysBetween(f.date, f.exp) < 0 ? "Expiry is before the sale date." : null;
+  if(err){ $("np_err").textContent = err; return; }
+  let p = f.into ? a.positions.find(x=>x.id===f.into) : null;
+  if(!p){ p = {id:uid(), sym:f.sym, legs:[], shares:[], mark:null, carry:0, shut:false}; a.positions.push(p); }
+  addLeg(p, {type:"put", side:"short", strike:f.strike, exp:f.exp, qty:f.qty, date:f.date, price:f.credit, fees:f.fees});
+  save();
+  // Drop the matching row from the selector: it has been acted on.
+  const ci = a.cands.findIndex(c=>c.sym===f.sym && num(c.strike)===f.strike && c.exp===f.exp);
+  if(ci>=0){ a.cands.splice(ci,1); save(); }
+  ["np_sym","np_strike","np_credit"].forEach(id=>$(id).value = "");
+  $("np_qty").value = 1; $("np_fees").dataset.touched = ""; autoFee("np_qty","np_fees");
+  render();
+  $("np_ok").textContent = "Recorded: " + f.qty + " " + f.sym + " " + fmtP(f.strike) + " put, " + fmtD(f.exp) + ".";
+}
+
+/* ---------------- 04 · Open Positions ---------------- */
+function statusPills(d){
+  const out = [];
+  if(d.sh) out.push('<span class="pill info">' + fmtQ(d.sh) + " sh</span>");
+  if(d.nPutC) out.push('<span class="pill plain">short put &times;' + d.nPutC + "</span>");
+  if(d.nCallC) out.push('<span class="pill plain">short call &times;' + d.nCallC + "</span>");
+  if(d.nLongC) out.push('<span class="pill plain">long put &times;' + d.nLongC + "</span>");
+  return out.join(" ");
+}
+function historyTable(p, d, canUndo){
+  return '<table><tr><th>Date</th><th>Event</th><th class="num">Price</th><th class="num">Fees</th><th class="num">Cash</th><th class="num">P/L banked</th><th></th></tr>' +
+    d.rows.map(r=>{
+      // A share trade that an assignment or buyback created is undone through the close that made it.
+      const undo = canUndo && !(r.k==="sh" && r.via && r.via!=="carry")
+        ? '<button class="x" title="Undo this" onclick="undoEv('+q(p.id)+','+q(r.k)+','+q(r.id)+')">&#10005;</button>' : "";
+      return '<tr><td class="nw">'+fmtD(r.date)+'</td><td>'+esc(r.text)+'</td><td class="num">'+(r.price!=null ? fmtP(r.price) : "")+
+        '</td><td class="num">'+(r.fees ? fmt$(r.fees) : "")+'</td><td class="num '+cls(r.cash)+'">'+sgn$(r.cash)+
+        '</td><td class="num '+(r.pl!=null ? cls(r.pl) : "")+'">'+(r.pl!=null ? sgn$(r.pl) : "")+'</td><td class="num">'+undo+'</td></tr>';
+    }).join("") +
+    (p.carry ? '<tr><td></td><td class="muted">Premium carried in from before tracking &mdash; in the basis, not in account P/L</td><td></td><td></td><td></td><td class="num '+cls(p.carry)+'">'+sgn$(p.carry)+'</td><td></td></tr>' : "") +
+    "</table>";
+}
+function posCard(p, d){
+  const today = todayISO();
+  const head = '<div class="poshead"><button class="small" onclick="togglePos('+q(p.id)+')">'+(p.shut?"&#9656;":"&#9662;")+'</button>' +
+    '<span class="tk">'+esc(p.sym)+'</span> ' + statusPills(d) +
+    '<span class="muted">since '+fmtD(d.first)+VBAR+plural(d.days,"day")+'</span>' +
+    (p.shut ? '<span class="muted" style="margin-left:auto">' + (d.adj!=null ? "basis " + fmtP(d.adj) + VBAR : "") + "banked " + sgn$(d.total) + "</span>" : "") +
+    '<button class="small danger" style="'+(p.shut?"":"margin-left:auto")+'" title="Delete this position and all its events" onclick="delPos('+q(p.id)+')">&#10005;</button></div>';
+  if(p.shut) return '<div class="card shut">' + head + '</div>';
+
+  const fp = d.fp;
+  let h = head + '<div class="statrow">' +
+    metric("Shares", d.sh ? fmtQ(d.sh) : "0", d.sh ? "avg cost " + fmtP(d.avg) : "none held yet") +
+    metric("Adjusted basis", d.adj!=null ? fmtP(d.adj) : "—",
+      d.adj!=null ? (d.avg - d.adj > 0 ? fmtP(d.avg - d.adj) + "/sh off cost (" + pct((d.avg-d.adj)/d.avg,1) + ")" : "at or above cost") : "set when shares arrive", "gold") +
+    metric("Premium banked", sgn$(d.rOpt + d.carry), "closed option legs, net of fees" + (d.carry ? ", incl. carried in" : ""), cls(d.rOpt + d.carry)) +
+    metric("Position P/L", sgn$(d.total), d.rSh ? "shares " + sgn$(d.rSh) + " of it" : "closed legs only", cls(d.total)) +
+    metric("Capital at work", fmt$(d.capNow), "peak " + fmt$(d.peak)) +
+    metric("ROE" + VBAR + "annualized", spct(d.roe) + VBAR + pct(d.ann,1), "P/L on peak capital, " + plural(d.days,"day")) +
+    (fp ? metric("First put" + VBAR + "annualized", pct(fp.roe) + VBAR + pct(fp.ann,1),
+      fmtP(fp.L.strike) + " &times;" + fp.qty + ", " + (fp.open ? "if it expires" : fp.hows.join(", ") + " in " + plural(fp.days,"day"))) : "") +
+    '</div>';
+
+  if(d.sh){
+    const m = p.mark>0 ? p.mark : null;
+    h += '<div class="marks"><div style="display:flex;align-items:center;gap:8px"><label for="mk_'+p.id+'" style="margin:0">Last price</label>' +
+      '<input id="mk_'+p.id+'" type="number" step="any" value="'+(m||"")+'" placeholder="mark" onchange="setMark('+q(p.id)+',this.value)"></div>' +
+      (m ? '<span class="muted">Shares vs cost <b class="'+cls((m-d.avg)*d.sh)+'" style="font-family:var(--mono)">'+sgn$((m-d.avg)*d.sh)+'</b> ('+spct((m-d.avg)/d.avg,1)+')' +
+           VBAR + 'whole position vs basis <b class="'+cls((m-d.adj)*d.sh)+'" style="font-family:var(--mono)">'+sgn$((m-d.adj)*d.sh)+'</b>' +
+           ' ('+spct(d.peak>0 ? (m-d.adj)*d.sh/d.peak : null,1)+' on peak capital)</span>'
+         : '<span class="muted">Enter a price to see the shares against cost and the whole position against basis.</span>') +
+      '</div>';
+    h += '<div class="sub2">Break-even is the basis, <b>' + fmtP(d.adj) + '</b> &mdash; sell above it and the position, premium included, is ahead.</div>';
+  }
+
+  // What each open short would do to the position if it ran to assignment.
+  d.openLegs.filter(L=>L.side==="short").forEach(L=>{
+    const s = simulate(p, c=>closeLeg(c, L.id, {how:"assigned", date: L.exp < today ? today : L.exp, qty:L.qty, fees:0}));
+    if(s.err) return;
+    if(L.type==="call"){
+      const gain = s.total - d.total;
+      h += '<div class="sub2">If the ' + fmtP(L.strike) + " call is assigned: " + fmtQ(100*L.qty) + " shares go at " + fmtP(L.strike) +
+        " and the position banks <b>" + sgn$(gain) + "</b> more" + (s.flat ? ", closing at <b>" + sgn$(s.total) + "</b> total (" + pct(s.roe) + " on peak capital)." : ".") + "</div>";
+    } else {
+      h += '<div class="sub2">If the ' + fmtP(L.strike) + " put is assigned: " + fmtQ(s.sh) + " shares at a basis of <b>" + fmtP(s.adj) + "</b>" +
+        (d.adj!=null ? ", from " + fmtP(d.adj) : ", " + fmtP(L.strike - s.adj) + " under the strike") + ".</div>";
+    }
+  });
+
+  if(d.openLegs.length){
+    h += '<div class="scroll" style="margin-top:12px"><table><tr><th>Open leg</th><th class="num">Strike</th><th>Expiry</th><th class="num">Qty</th>' +
+      '<th class="num">Opened at</th><th class="num">Premium</th><th class="num">Ties up</th><th></th></tr>' +
+      d.openLegs.slice().sort((x,y)=>x.exp<y.exp?-1:x.exp>y.exp?1:0).map(L=>{
+        const dte = daysBetween(today, L.exp), m = 100*L.qty;
+        const prem = L.side==="short" ? L.open.price*m - L.open.fees : -(L.open.price*m + L.open.fees);
+        return '<tr><td class="nw">'+legKind(L)+'</td><td class="num">'+fmtP(L.strike)+'</td><td class="nw">'+fmtD(L.exp)+
+          ' <span class="'+(dte<0?"neg":"muted")+'">'+(dte<0 ? "expired, not closed" : dte===0 ? "today" : dte+"d")+'</span></td>' +
+          '<td class="num">'+L.qty+'</td><td class="num">'+fmtP(L.open.price)+'</td><td class="num '+cls(prem)+'">'+sgn$(prem)+'</td>' +
+          '<td class="num">'+(L.side==="short" && L.type==="put" ? fmt$(L.strike*m) : L.side==="short" ? fmtQ(m)+" sh" : "")+'</td>' +
+          '<td class="num"><button class="small'+(dte<=0?" warn":"")+'" onclick="closeUI('+q(p.id)+','+q(L.id)+')">Close</button></td></tr>';
+      }).join("") + "</table></div>";
+  }
+
+  h += '<div class="acts">' +
+    '<button class="small" onclick="posAction('+q(p.id)+',\'sellcall\')">Sell a call</button>' +
+    '<button class="small" onclick="posAction('+q(p.id)+',\'sellput\')">Sell a put</button>' +
+    '<button class="small" onclick="posAction('+q(p.id)+',\'buyput\')">Buy a put</button>' +
+    '<button class="small" onclick="posAction('+q(p.id)+',\'buysh\')">Buy shares</button>' +
+    (d.sh ? '<button class="small" onclick="posAction('+q(p.id)+',\'sellsh\')">Sell shares</button>' : "") +
+    '</div>';
+  h += '<details'+(p.hist?" open":"")+' ontoggle="histToggle('+q(p.id)+',this.open)"><summary>History &mdash; '+plural(d.rows.length,"event")+'</summary>' +
+    '<div class="scroll" style="margin-top:8px">' + historyTable(p, d, true) + '</div></details>';
+  return '<div class="card">' + h + '</div>';
+}
+function renderOpen(){
+  const a = acct(), d = deriveAcct(a);
+  const list = d.open.slice().sort((x,y)=>x.d.first<y.d.first?-1:x.d.first>y.d.first?1:0);
+  $("openSummary").innerHTML = list.length
+    ? plural(list.length,"position") + VBAR + fmt$(d.cost + d.coll + d.longc) + " at work"
+    : "";
+  $("body_open").innerHTML = list.length
+    ? list.map(x=>posCard(x.p, x.d)).join("")
+    : '<div class="card muted">Nothing open. Sell a put in section 03 and it appears here.</div>';
+}
+window.togglePos = pid => { const p = findPos(pid); p.shut = !p.shut; save(); renderOpen(); };
+window.histToggle = (pid, open) => { const p = findPos(pid); if(p && !!p.hist!==open){ p.hist = open; save(); } };
+window.setMark = (pid, v) => { const p = findPos(pid); p.mark = num(v)>0 ? num(v) : null; save(); render(); };
+window.delPos = pid => {
+  const p = findPos(pid), n = p.legs.length + p.shares.length;
+  if(!confirm("Delete the whole " + p.sym + " position and its " + plural(n,"event") + "? Only a backup brings it back.")) return;
+  const a = acct(); a.positions = a.positions.filter(x=>x.id!==pid); save(); render();
+};
+
+// Undo one event. Undoing an open removes the leg entirely; undoing a close reopens it, takes back any
+// shares the close created, and folds a split piece back into its remainder.
+window.undoEv = (pid, k, id) => {
+  const a = acct(), p = findPos(pid);
+  if(!p) return;
+  if(k==="open"){
+    const L = p.legs.find(x=>x.id===id);
+    if(!confirm("Remove " + legKind(L).toLowerCase() + " " + legName(L) + (L.close ? " and its close" : "") + " entirely?")) return;
+    if(L.close && L.close.link) p.shares = p.shares.filter(S=>S.id!==L.close.link);
+    p.legs = p.legs.filter(x=>x!==L);
+  } else if(k==="close"){
+    const L = p.legs.find(x=>x.id===id);
+    if(!confirm("Undo “" + closeText(L) + "”? The leg goes back to open" + (L.close.link ? " and the shares it moved are taken back" : "") + ".")) return;
+    if(L.close.link) p.shares = p.shares.filter(S=>S.id!==L.close.link);
+    L.close = null;
+    const root_ = L.of || L.id;
+    const sib = p.legs.find(x=>x!==L && !x.close && (x.of||x.id)===root_ && x.open.n===L.open.n);
+    if(sib){
+      const keep = sib.of ? L : sib, drop = keep===L ? sib : L;
+      keep.qty += drop.qty; keep.open.fees = r2(keep.open.fees + drop.open.fees);
+      p.legs = p.legs.filter(x=>x!==drop);
+    }
+  } else {
+    const S = p.shares.find(x=>x.id===id);
+    if(!confirm("Remove “" + (S.side==="buy"?"bought ":"sold ") + fmtQ(S.qty) + " sh at " + fmtP(S.price) + "”?")) return;
+    p.shares = p.shares.filter(x=>x!==S);
+  }
+  if(!p.legs.length && !p.shares.length) a.positions = a.positions.filter(x=>x!==p);
+  save(); render();
+};
+
+/* ---------------- modal forms ---------------- */
+let modalOk = null, modalInput = null;
+const fld = (id, label, type, value, attrs) =>
+  '<div id="w_'+id+'"><label for="'+id+'">'+label+'</label><input id="'+id+'" type="'+type+'" value="'+esc(value==null?"":value)+'" '+(attrs||"")+'></div>';
+function openModal(title, body, okLabel, onOk, onInput){
+  $("modalTitle").innerHTML = title;
+  $("modalBody").innerHTML = body + '<div id="m_note"></div><div class="err" id="m_err"></div>' +
+    '<div class="row" style="margin-top:14px;justify-content:flex-end"><button onclick="closeModal()">Cancel</button>' +
+    '<button class="primary" id="m_ok">' + okLabel + '</button></div>';
+  modalOk = onOk; modalInput = onInput || null;
+  $("modal").style.display = "flex";
+  $("m_ok").onclick = submitModal;
+  if(modalInput) modalInput({});
+  const f = $("modalBody").querySelector("input:not([type=date]),select");
+  if(f) f.focus();
+}
+function submitModal(){
+  const err = modalOk();
+  if(err){ $("m_err").textContent = err; return; }
+  closeModal(); save(); render();
+}
+window.closeModal = () => { $("modal").style.display = "none"; modalOk = modalInput = null; };
+const mv = id => $(id) ? $(id).value : "";
+const mn = id => num(mv(id));
+const note = (h) => { $("m_note").innerHTML = h || ""; };
+const show = (id, on) => { const w = $("w_"+id); if(w) w.style.display = on ? "" : "none"; };
+
+// Record a new leg or share trade on an existing position.
+window.posAction = (pid, kind) => {
+  const a = acct(), p = findPos(pid), d = derivePos(p);
+  const opt = kind==="sellput" || kind==="sellcall" || kind==="buyput";
+  const uncovered = d.sh - 100*d.nCallC;
+  const qty0 = kind==="sellcall" ? Math.max(1, Math.floor(uncovered/100)) : kind==="buyput" ? Math.max(1, Math.floor(d.sh/100)) : 1;
+  const title = {sellput:"Sell a put", sellcall:"Sell a call", buyput:"Buy a put", buysh:"Buy shares", sellsh:"Sell shares"}[kind] + " &middot; " + esc(p.sym);
+  let body = '<div class="fields two">' + fld("m_date","Date","date",todayISO());
+  if(opt){
+    body += fld("m_strike","Strike","number","",'step="any"') + fld("m_exp","Expiry","date",nextFriday()) +
+      fld("m_qty","Contracts","number",qty0,'step="1" min="1"') +
+      fld("m_price", kind==="buyput" ? "Debit per share" : "Credit per share","number","",'step="any"') +
+      fld("m_fees","Fees","number",r2(qty0*a.fee).toFixed(2),'step="0.01" min="0" data-auto="1"');
+  } else {
+    body += fld("m_qty","Shares","number", kind==="sellsh" ? d.sh : 100,'step="1" min="1"') +
+      fld("m_price","Price per share","number", kind==="sellsh" && p.mark ? p.mark : "",'step="any"') +
+      fld("m_fees","Fees","number","0.00",'step="0.01" min="0"');
+  }
+  body += '</div>';
+  const read = () => ({ date:mv("m_date")||todayISO(), strike:mn("m_strike"), exp:mv("m_exp"), qty:mn("m_qty"), price:mn("m_price"), fees:mn("m_fees")||0 });
+  const act = (c, f) => opt
+    ? addLeg(c, {type: kind==="sellcall" ? "call" : "put", side: kind==="buyput" ? "long" : "short",
+                 strike:f.strike, exp:f.exp, qty:f.qty, date:f.date, price:f.price, fees:f.fees})
+    : addShares(c, {side: kind==="buysh" ? "buy" : "sell", date:f.date, qty:f.qty, price:f.price, fees:f.fees});
+  const check = f => !(f.qty>=1) || Math.floor(f.qty)!==f.qty ? (opt ? "Contracts" : "Shares") + " must be a whole number." :
+    opt && !(f.strike>0) ? "Strike must be above zero." : !(f.price>0) ? "Price must be above zero." :
+    opt && !f.exp ? "Expiry is missing." : opt && f.exp < f.date ? "Expiry is before the trade date." : null;
+  openModal(title, body, "Record", () => {
+    const f = read(), e = check(f);
+    return e || act(p, f);
+  }, () => {
+    const f = read();
+    if(check(f)) return note("");
+    const s = simulate(p, c=>act(c, f));
+    if(s.err) return note('<div class="flag red">'+esc(s.err)+'</div>');
+    let h = "";
+    if(kind==="sellcall"){
+      const days = daysBetween(f.date, f.exp), net = f.price*100*f.qty - f.fees, base = (d.adj||d.avg||f.strike)*100*f.qty;
+      h += '<div class="flag mut">' + fmt$(net) + " net &mdash; " + pct(net/base) + " on the shares' basis, " + pct(annual(net/base, days),1) + " annualized." +
+        (d.adj!=null ? (f.strike < d.adj ? ' <span style="color:var(--amber)">Strike is under your basis of ' + fmtP(d.adj) + " &mdash; assignment there locks in a loss.</span>"
+                                         : " Assigned at " + fmtP(f.strike) + ", the shares clear basis by " + fmtP(f.strike - d.adj) + ".") : "") + "</div>";
+      if(100*f.qty > uncovered) h += '<div class="flag amber">Covers ' + fmtQ(Math.max(0,uncovered)) + " uncovered shares &mdash; " +
+        plural(f.qty - Math.max(0,Math.floor(uncovered/100)),"contract") + " would be naked. Recorded if you go ahead.</div>";
+    } else if(kind==="sellput"){
+      const ad = acct(), dd = deriveAcct(ad), coll = f.strike*100*f.qty;
+      h += '<div class="flag mut">' + fmt$(coll) + " collateral; buying power " + fmt$(dd.bp) + " &rarr; " + fmt$(dd.bp - coll - f.fees) + ".</div>";
+      if(coll > dd.bp + EPS) h += '<div class="flag red">That is ' + fmt$(coll - dd.bp) + " more than you have free. Your call.</div>";
+    } else if(kind==="buysh"){
+      h += '<div class="flag mut">' + fmtQ(s.sh) + " shares, avg cost " + fmtP(s.avg) + ", basis <b class=\"gold\">" + fmtP(s.adj) + "</b>" + (d.adj!=null ? " (from " + fmtP(d.adj) + ")" : "") + ".</div>";
+    } else if(kind==="sellsh"){
+      h += '<div class="flag mut">Realizes <span class="'+cls(s.rSh - d.rSh)+'">' + sgn$(s.rSh - d.rSh) + "</span> against average cost" +
+        (d.adj!=null ? "; against basis the shares sold are " + sgn$((f.price - d.adj)*f.qty - f.fees) : "") + "." +
+        (s.flat ? " Closes the position at " + sgn$(s.total) + "." : "") + "</div>";
+    }
+    note(h);
+  });
+};
+
+// Close an option leg: bought back, expired, assigned, or the long-put equivalents.
+window.closeUI = (pid, lid) => {
+  const a = acct(), p = findPos(pid), L = p.legs.find(x=>x.id===lid), today = todayISO();
+  const opts = L.side==="long"
+    ? [["stc","Sold"],["expired","Expired worthless"],["exercised","Exercised — shares sold at strike"]]
+    : L.type==="put"
+      ? [["btc","Bought back"],["expired","Expired worthless"],["assigned","Assigned — shares arrive"],["btcbuy","Bought back, and bought shares"]]
+      : [["btc","Bought back"],["expired","Expired worthless"],["assigned","Assigned — shares called away"]];
+  const expd = L.exp <= today;
+  const how0 = expd ? "expired" : opts[0][0];
+  const body = '<div class="muted" style="margin-bottom:10px">' + legKind(L) + " " + legName(L) + " &times;" + L.qty +
+      ", opened " + fmtDY(L.open.date) + " at " + fmtP(L.open.price) + "</div>" +
+    '<div class="fields two"><div id="w_m_how" style="grid-column:1/-1"><label for="m_how">What happened</label><select id="m_how">' +
+      opts.map(o=>'<option value="'+o[0]+'"'+(o[0]===how0?" selected":"")+'>'+o[1]+'</option>').join("") + '</select></div>' +
+    fld("m_date","Date","date", expd ? L.exp : today) +
+    fld("m_qty","Contracts","number",L.qty,'step="1" min="1" max="'+L.qty+'"') +
+    fld("m_price","Debit per share","number","",'step="any"') +
+    fld("m_fees","Fees","number",r2(L.qty*a.fee).toFixed(2),'step="0.01" min="0" data-auto="1"') +
+    fld("m_shp","Share price","number","",'step="any"') +
+    fld("m_shf","Share fees","number","0.00",'step="0.01" min="0"') + '</div>';
+  let lastHow = null;
+  const read = () => ({ how:mv("m_how"), date:mv("m_date")||today, qty:mn("m_qty"), price:mn("m_price"), fees:mn("m_fees")||0,
+                        shPrice:mn("m_shp"), shFees:mn("m_shf")||0 });
+  const check = f => (OPEN_PRICE_HOWS[f.how] && !(f.price>=0 && mv("m_price")!=="")) ? "Enter the price per share." :
+                     (f.how==="btcbuy" && !(f.shPrice>0)) ? "Enter the price paid for the shares." : null;
+  openModal("Close &middot; " + esc(p.sym), body, "Record", () => {
+    const f = read(); return check(f) || closeLeg(p, lid, f);
+  }, e => {
+    const how = mv("m_how"), fees = $("m_fees");
+    if(how!==lastHow){
+      // Changing what happened resets the fee box to what that outcome usually costs, unless typed in.
+      show("m_price", !!OPEN_PRICE_HOWS[how]);
+      $("w_m_price").querySelector("label").textContent = how==="stc" ? "Credit per share" : "Debit per share";
+      $("w_m_fees").querySelector("label").textContent = (how==="assigned" || how==="exercised") ? "Assignment fee" : "Fees";
+      show("m_fees", how!=="expired");
+      show("m_shp", how==="btcbuy"); show("m_shf", how==="btcbuy");
+      if(!fees.dataset.touched){
+        fees.dataset.auto = OPEN_PRICE_HOWS[how] ? "1" : "";
+        fees.value = OPEN_PRICE_HOWS[how] ? r2((mn("m_qty")||L.qty)*a.fee).toFixed(2) : "0.00";
+      }
+      if(how==="expired" && L.exp <= today && !$("m_date").dataset.touched) $("m_date").value = L.exp;
+      lastHow = how;
+    }
+    if(how==="expired") fees.value = "0.00";
+    const f = read();
+    if(check(f)) return note("");
+    const s = simulate(p, c=>closeLeg(c, lid, f));
+    if(s.err) return note('<div class="flag red">'+esc(s.err)+'</div>');
+    const d = derivePos(p), got = s.rOpt - d.rOpt;
+    let h = '<div class="flag mut">This leg: <b class="'+cls(got)+'">' + sgn$(got) + "</b> net of fees, on " + fmt$(L.strike*100*f.qty) +
+            (L.side==="short" && L.type==="put" ? " collateral" : " notional") + ".";
+    if(f.how==="assigned" && L.type==="put" || f.how==="btcbuy") h += " You hold " + fmtQ(s.sh) + " shares at a basis of <b class=\"gold\">" + fmtP(s.adj) + "</b>" +
+      " against " + fmtP(s.avg) + " paid.";
+    if((f.how==="assigned" && L.type==="call") || f.how==="exercised")
+      h += s.flat ? " Closes the position at <b class=\""+cls(s.total)+"\">" + sgn$(s.total) + "</b>, " + pct(s.roe) + " on peak capital, " + pct(s.ann,1) + " annualized."
+                  : " " + fmtQ(s.sh) + " shares left, basis " + fmtP(s.adj) + ".";
+    else if(s.flat) h += " Closes the position at <b class=\""+cls(s.total)+"\">" + sgn$(s.total) + "</b>.";
+    note(h + "</div>");
+  });
+};
+
+// Start tracking shares already held before this app. Premium collected on them before now comes
+// off the basis but not into account P/L — that money is already inside the starting value.
+window.bringIn = () => {
+  const body = '<div class="fields two">' + fld("m_sym","Symbol","text","",'style="text-transform:uppercase"') +
+    fld("m_date","Acquired","date",todayISO()) + fld("m_qty","Shares","number",100,'step="1" min="1"') +
+    fld("m_price","Cost per share","number","",'step="any"') +
+    fld("m_carry","Premium already collected","number","0.00",'step="0.01"') + '</div>' +
+    '<div class="hint">Premium collected before today, net of fees, lowers the basis without touching account P/L &mdash; it is already in your ' +
+    'starting value. Set the starting value to cash plus what you paid for these shares, so buying power comes out right.</div>';
+  openModal("Bring in existing shares", body, "Add position", () => {
+    const sym = mv("m_sym").trim().toUpperCase(), qty = mn("m_qty"), price = mn("m_price"), date = mv("m_date")||todayISO();
+    if(!sym) return "Symbol is missing.";
+    if(!(qty>=1)) return "Shares must be at least 1.";
+    if(!(price>0)) return "Cost per share must be above zero.";
+    const p = {id:uid(), sym, legs:[], shares:[], mark:null, carry:r2(mn("m_carry")||0), shut:false};
+    addShares(p, {side:"buy", date, qty, price, fees:0, via:"carry"});
+    acct().positions.push(p);
+    return null;
+  }, () => {
+    const qty = mn("m_qty"), price = mn("m_price"), carry = mn("m_carry")||0;
+    note(qty>0 && price>0 ? '<div class="flag mut">Basis ' + fmtP((qty*price - carry)/qty) + " on " + fmtQ(qty) + " shares.</div>" : "");
+  });
+};
+
+/* ---- accounts ---- */
+window.switchAcct = id => { if(!root.accounts[id]) return; root.active = id; save(); render(); };
+window.addAcct = () => {
+  const body = '<div class="fields two">' + fld("m_name","Name","text","") + fld("m_start","Starting value","number","",'step="0.01"') + '</div>';
+  openModal("New account", body, "Create", () => {
+    const name = mv("m_name").trim(), start = mn("m_start");
+    if(!name) return "Give it a name.";
+    if(Object.values(root.accounts).some(x=>x.name.toLowerCase()===name.toLowerCase())) return "There is already an account called " + name + ".";
+    if(!(start>=0)) return "Starting value is missing.";
+    const a = newAccount(name, r2(start)), cur = acct();
+    a.fee = cur.fee; a.minWeekly = cur.minWeekly;
+    root.accounts[a.id] = a; root.order.push(a.id); root.active = a.id;
+    return null;
+  });
+};
+window.renameAcct = () => {
+  const a = acct();
+  openModal("Rename account", '<div class="fields">' + fld("m_name","Name","text",a.name) + '</div>', "Rename", () => {
+    const name = mv("m_name").trim();
+    if(!name) return "Give it a name.";
+    if(Object.values(root.accounts).some(x=>x!==a && x.name.toLowerCase()===name.toLowerCase())) return "There is already an account called " + name + ".";
+    a.name = name; return null;
+  });
+};
+window.deleteAcct = () => {
+  const a = acct();
+  if(root.order.length<2) return;
+  if(!confirm("Delete the account “" + a.name + "” and its " + plural(a.positions.length,"position") + "?")) return;
+  if(a.positions.length && !confirm("Really? Only a backup brings it back.")) return;
+  delete root.accounts[a.id];
+  root.order = root.order.filter(x=>x!==a.id);
+  root.active = root.order[0];
+  save(); render();
+};
+window.delFlow = id => {
+  const a = acct(), f = a.flows.find(x=>x.id===id);
+  if(!confirm("Remove the " + sgn$(f.amount) + " on " + fmtDY(f.date) + "?")) return;
+  a.flows = a.flows.filter(x=>x.id!==id); save(); render();
+};
+
+/* ---------------- 05 · Closed Positions ---------------- */
+const expanded = {};
+function renderClosed(){
+  const a = acct(), d = deriveAcct(a);
+  const list = d.closed.slice().sort((x,y)=>x.d.last>y.d.last?-1:x.d.last<y.d.last?1:0);
+  let pl = 0, prem = 0, wins = 0, assigned = 0, capDays = 0;
+  list.forEach(x=>{
+    pl += x.d.total; prem += x.d.rOpt; if(x.d.total > EPS) wins++;
+    if(x.p.shares.length) assigned++;
+    capDays += x.d.peak * Math.max(WEEK_FLOOR, x.d.days);
+  });
+  $("closedSummary").innerHTML = list.length ? plural(list.length,"position") + VBAR + '<span class="'+cls(pl)+'">' + sgn$(pl) + "</span>" : "";
+  $("closedStats").innerHTML = list.length
+    ? metric("Closed", list.length, wins + " won, " + (list.length - wins) + " did not") +
+      metric("Total P/L", sgn$(pl), "net of every fee", cls(pl)) +
+      metric("Option premium", sgn$(prem), "all closed legs, net") +
+      metric("Took shares", assigned ? pct(assigned/list.length,0) : "0%", assigned + " of " + list.length + " went past the put") +
+      metric("Annualized", pct(capDays>0 ? pl*365/capDays : null,1), "capital-weighted, simple")
+    : "";
+  $("closedTbl").innerHTML = list.length
+    ? '<tr><th>Symbol</th><th>Path</th><th>Opened</th><th>Closed</th><th class="num">Days</th><th class="num">P/L</th>' +
+      '<th class="num">Peak capital</th><th class="num">ROE</th><th class="num">Annualized</th><th class="num">First put</th></tr>' +
+      list.map(x=>{
+        const p = x.p, dd = x.d, fp = dd.fp;
+        let r = '<tr class="clickable" onclick="toggleClosed('+q(p.id)+')"><td class="nw"><b style="font-family:var(--mono)">'+esc(p.sym)+'</b></td>' +
+          '<td>'+esc(pathOf(p))+'</td><td class="nw">'+fmtD(dd.first)+'</td><td class="nw">'+fmtD(dd.last)+'</td><td class="num">'+dd.days+'</td>' +
+          '<td class="num '+cls(dd.total)+'">'+sgn$(dd.total)+'</td><td class="num">'+fmt$(dd.peak)+'</td>' +
+          '<td class="num '+cls(dd.roe)+'">'+spct(dd.roe)+'</td><td class="num">'+pct(dd.ann,1)+'</td>' +
+          '<td class="num" title="'+(fp ? "Return on the first put's cash, annualized "+pct(fp.ann,1) : "")+'">'+(fp ? pct(fp.roe) : "—")+'</td></tr>';
+        if(expanded[p.id]) r += '<tr class="expand"><td colspan="10"><div class="scroll">' + historyTable(p, dd, true) + '</div></td></tr>';
+        return r;
+      }).join("")
+    : '<tr><td class="muted" style="border:0;padding-left:0">No closed positions yet. A put that expires or is bought back lands here straight away; an assigned one lands when the last share goes.</td></tr>';
+  drawEquity(a, d);
+}
+window.toggleClosed = pid => { expanded[pid] = !expanded[pid]; renderClosed(); };
+
+function drawEquity(a, d){
+  const pts = d.points.slice().sort((x,y)=>x.date<y.date?-1:x.date>y.date?1:(x.n||0)-(y.n||0));
+  const svg = $("eqChart");
+  $("eqBox").style.display = pts.length ? "" : "none";
+  if(!pts.length){ svg.innerHTML = ""; return; }
+  let v = a.start;
+  const s = [{x:dnum(a.startDate < pts[0].date ? a.startDate : pts[0].date), y:v}];
+  pts.forEach(e=>{ v += e.amt; s.push({x:dnum(e.date), y:v}); });
+  s.push({x:Math.max(dnum(todayISO()), s[s.length-1].x), y:v});
+  const W = 560, H = 150, L = 4, R = 4, T = 10, B = 16;
+  const x0 = s[0].x, x1 = Math.max(s[s.length-1].x, x0+1);
+  let y0 = Math.min.apply(null, s.map(p=>p.y)), y1 = Math.max.apply(null, s.map(p=>p.y));
+  const pad = Math.max((y1-y0)*0.12, 1); y0 -= pad; y1 += pad;
+  const X = x => L + (x-x0)/(x1-x0)*(W-L-R), Y = y => T + (1-(y-y0)/(y1-y0))*(H-T-B);
+  let path = "M" + X(s[0].x).toFixed(1) + " " + Y(s[0].y).toFixed(1);
+  for(let i=1;i<s.length;i++) path += " H" + X(s[i].x).toFixed(1) + " V" + Y(s[i].y).toFixed(1);
+  svg.innerHTML =
+    '<line x1="'+L+'" x2="'+(W-R)+'" y1="'+Y(a.start).toFixed(1)+'" y2="'+Y(a.start).toFixed(1)+'" stroke="#2c3646" stroke-dasharray="3 4"/>' +
+    '<path d="'+path+'" fill="none" stroke="#b08d3f" stroke-width="1.8" vector-effect="non-scaling-stroke"/>' +
+    '<text x="'+L+'" y="'+(H-3)+'" fill="#697588" font-size="10">'+esc(fmtDY(iso(x0)))+'</text>' +
+    '<text x="'+(W-R)+'" y="'+(H-3)+'" fill="#697588" font-size="10" text-anchor="end">'+esc(fmt$(v))+'</text>';
+}
+
+/* ---------------- 06 · Data ---------------- */
+function applyImport(){
+  const el = $("io_err");
+  let p;
+  try{ p = JSON.parse($("io").value); }catch(e){ el.className = "err"; el.textContent = "That isn't valid JSON — nothing was imported."; return; }
+  if(!p || typeof p!=="object" || !p.accounts || typeof p.accounts!=="object"){
+    el.className = "err"; el.textContent = "That isn't an export from this app — nothing was imported."; return;
+  }
+  if(!confirm("Replace everything here with the " + plural(Object.keys(p.accounts).length,"account") + " in the box?")) return;
+  root = p; normalize(); save(); render();
+  el.className = "okmsg"; el.textContent = "Imported.";
+}
+
+/* ---------------- clock and rail ---------------- */
+function tickClock(){
+  const d = new Date(), c = '<span class="c">:</span>';
+  $("clock").innerHTML = '<div class="t">'+p2(d.getHours())+c+p2(d.getMinutes())+c+p2(d.getSeconds())+'</div>' +
+    '<div class="d">'+d.toLocaleDateString(undefined,{weekday:"short",day:"numeric",month:"short",year:"numeric"})+'</div>';
+}
+// Highlight whichever section is nearest the top — by position, since sections change height constantly.
+function initRail(){
+  const links = [...document.querySelectorAll("#rail a")];
+  const targets = links.map(a=>({a, el:document.getElementById(a.getAttribute("href").slice(1))})).filter(x=>x.el);
+  let queued = false;
+  const mark = () => {
+    queued = false;
+    let cur = targets[0];
+    targets.forEach(t=>{ if(t.el.getBoundingClientRect().top <= 90) cur = t; });
+    targets.forEach(t=>t.a.classList.toggle("on", t===cur));
+  };
+  window.addEventListener("scroll", ()=>{ if(!queued){ queued = true; requestAnimationFrame(mark); } }, {passive:true});
+  mark();
+}
+
+/* ---------------- wiring ---------------- */
+function wire(){
+  const setA = (id, fn) => $(id).addEventListener("change", e=>{ fn(acct(), e.target.value); save(); render(); });
+  setA("s_start",     (a,v)=>{ if(num(v)!=null) a.start = r2(num(v)); });
+  setA("s_startDate", (a,v)=>{ if(v) a.startDate = v; });
+  setA("s_fee",       (a,v)=>{ if(num(v)>=0) a.fee = num(v); });
+  setA("s_min",       (a,v)=>{ if(num(v)>=0) a.minWeekly = num(v); });
+  $("sel_cap").addEventListener("input", e=>{ const v = num(e.target.value); acct().capital = v>=0 ? v : null; save(); selCompute(); });
+
+  $("f_date").value = todayISO();
+  $("f_add").addEventListener("click", ()=>{
+    const amt = num($("f_amt").value), date = $("f_date").value || todayISO();
+    if(!amt){ $("f_err").textContent = "Enter an amount — negative for a withdrawal."; return; }
+    $("f_err").textContent = "";
+    acct().flows.push({id:uid(), date, amount:r2(amt), note:$("f_note").value.trim(), n:nextN()});
+    $("f_amt").value = ""; $("f_note").value = "";
+    save(); render();
+  });
+
+  $("np_exp").value = nextFriday(); $("np_date").value = todayISO();
+  autoFee("np_qty","np_fees");
+  ["np_sym","np_strike","np_exp","np_qty","np_credit","np_fees","np_date","np_into"].forEach(id=>
+    $(id).addEventListener("input", e=>{
+      if(id==="np_fees") e.target.dataset.touched = "1";
+      if(id==="np_qty") autoFee("np_qty","np_fees");
+      $("np_ok").textContent = "";
+      updateNP();
+    }));
+  $("np_go").addEventListener("click", recordNP);
+  $("np_clear").addEventListener("click", ()=>{
+    ["np_sym","np_strike","np_credit"].forEach(id=>$(id).value = "");
+    $("np_qty").value = 1; $("np_exp").value = nextFriday(); $("np_date").value = todayISO();
+    $("np_fees").dataset.touched = ""; autoFee("np_qty","np_fees");
+    $("np_err").textContent = ""; $("np_ok").textContent = ""; updateNP();
+  });
+
+  $("modal").addEventListener("input", e=>{
+    const t = e.target;
+    if(t.id==="m_fees" || t.id==="m_date") t.dataset.touched = "1";
+    if(t.id==="m_qty") autoFee("m_qty","m_fees");
+    if(modalInput) modalInput(e);
+  });
+  $("modal").addEventListener("keydown", e=>{
+    if(e.key==="Escape") closeModal();
+    if(e.key==="Enter" && e.target.tagName==="INPUT") submitModal();
+  });
+  $("modal").addEventListener("click", e=>{ if(e.target.id==="modal") closeModal(); });
+
+  $("exportBtn").addEventListener("click", ()=>{ $("io").value = JSON.stringify(root,null,1); $("io_err").textContent = ""; });
+  $("copyBtn").addEventListener("click", ()=>{
+    const s = JSON.stringify(root,null,1); $("io").value = s;
+    (navigator.clipboard ? navigator.clipboard.writeText(s) : Promise.reject()).then(
+      ()=>{ $("io_err").className = "okmsg"; $("io_err").textContent = "Copied."; },
+      ()=>{ $("io").select(); $("io_err").className = "err"; $("io_err").textContent = "The browser blocked the clipboard — it's selected in the box, copy it from there."; });
+  });
+  $("downloadBtn").addEventListener("click", ()=>{
+    const blob = new Blob([JSON.stringify(root,null,1)], {type:"application/json"});
+    const u = URL.createObjectURL(blob), el = document.createElement("a");
+    el.href = u; el.download = "wheel-" + todayISO() + ".json"; document.body.appendChild(el); el.click();
+    setTimeout(()=>{ URL.revokeObjectURL(u); el.remove(); }, 0);
+  });
+  $("uploadBtn").addEventListener("click", ()=>$("fileInput").click());
+  $("fileInput").addEventListener("change", e=>{
+    const f = e.target.files[0]; if(!f) return;
+    const r = new FileReader();
+    r.onload = () => { $("io").value = r.result; applyImport(); e.target.value = ""; };
+    r.readAsText(f);
+  });
+  $("importBtn").addEventListener("click", applyImport);
+  // Asks twice, and leaves a copy in the box first — if the second answer was a mistake, it can go straight back.
+  $("wipeBtn").addEventListener("click", ()=>{
+    if(!confirm("Clear every account, position and setting?")) return;
+    if(!confirm("Last chance. A copy goes into the box below first — save it if you might want it back.")) return;
+    $("io").value = JSON.stringify(root,null,1);
+    try{ localStorage.removeItem(KEY); }catch(e){}
+    root = newRoot(); save(); render();
+    $("io_err").className = "okmsg"; $("io_err").textContent = "Cleared. The old data is in the box until you leave the page.";
+  });
+}
+
+load();
+wire();
+render();
+renderSaveAlert();
+tickClock(); setInterval(tickClock, 1000);
+initRail();
+</script>
+</body>
+</html>
