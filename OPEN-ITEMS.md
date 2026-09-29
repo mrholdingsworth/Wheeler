@@ -1,7 +1,8 @@
 # Wheel — open items
 
 Single self-contained `index.html`, house style from `../PROJECT-HANDOFF.md`. Storage: one
-`localStorage` key, `wheel.v1`, schema 1. Footer version 0.9 (pre-release). Not deployed yet.
+`localStorage` key, `wheel.v1`, schema 1. Footer version 0.9 (pre-release). Live at https://mrholdingsworth.github.io/Wheeler/ (repo
+`mrholdingsworth/Wheeler`, Pages from `main` / root).
 
 ## To do
 
@@ -12,7 +13,6 @@ Single self-contained `index.html`, house style from `../PROJECT-HANDOFF.md`. St
   on an open leg (close + reopen, same date) would halve the typing. Decide first whether a roll's
   net credit should be shown as one line.
 - **Live marks.** Calc has Finnhub. Here the last price is typed by hand per position.
-- **Deploy.** GitHub Pages like Calc and Books, if wanted. Needs a repo name.
 
 ## Decided
 
