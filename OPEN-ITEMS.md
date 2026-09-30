@@ -1,4 +1,4 @@
-# Wheel — open items
+# Wheeler — open items
 
 Single self-contained `index.html`, house style from `../PROJECT-HANDOFF.md`. Storage: one
 `localStorage` key, `wheel.v1`, schema 1. Footer version 0.9 (pre-release). Live at https://mrholdingsworth.github.io/Wheeler/ (repo
@@ -16,9 +16,12 @@ Single self-contained `index.html`, house style from `../PROJECT-HANDOFF.md`. St
 
 ## Decided
 
-- **Buying power is conservative.** Premium on a short option that's still open is left out until
-  that option closes. That's why BP right after a sale is `value − collateral − fees`, not
-  `+ credit`. It's the spec's "new cash ready to be used, once it is closed".
+- **Buying power counts open credit, as a broker does** (changed 2026-09-29, at Steve's request
+  via the selector). A put's net credit lands when it sells and offsets its own collateral:
+  `BP = value − shares at cost − put collateral − long puts + net credit on open shorts`. It
+  still isn't *P/L*, so account value only moves when the leg closes. Max put strike is therefore
+  `(BP − fee) / 100 + the credit per share`. The first version left open credit out entirely. That
+  made BP go negative right after following the selector's advice, so it was reversed.
 - **Account value is closed P/L only**, to the penny. Shares count at cost. "Value at marks" shows
   up only when a position has a typed last price.
 - **Assignment realizes the put's premium** into the account. The same premium comes off the share
@@ -35,9 +38,18 @@ Single self-contained `index.html`, house style from `../PROJECT-HANDOFF.md`. St
 - **Annualized is simple, with a one-week floor.** A Monday-to-Friday put ties up the cash until
   the next Friday cycle, so four days is priced as seven. ROE's denominator is peak capital: put
   collateral plus shares at cost, at the position's high-water mark.
-- **Optimizer objective** is net credit (after per-contract fees) per week-equivalent, under the
-  capital constraint. With one expiry it reduces to the largest total net credit. Rows below the
-  weekly minimum are excluded, not just flagged. It's an exact bounded knapsack, coarsened (never
-  overspending) only when capital divided by the strikes' common step exceeds 200k units.
+- **Optimizer.** It maximizes total net credit (per week-equivalent when expiries differ), which
+  is the same as return on the *whole* capital figure. It never favors a higher % on a smaller
+  slice. The constraint is `Σ(collateral − net credit) ≤ capital`: $10,000 can carry $10,100 of
+  puts paying $113.70 (Steve's ABC + QUP case). With one expiry it's exact: a DP over collateral in
+  the strikes' common step, keeping the most credit at each level. With mixed expiries it's a DP
+  over cash needed, rounded up, so it can't overspend. At build time it was checked against
+  brute force on 300 random lists. Rows below the weekly minimum are excluded. The result box
+  states returns on the whole capital figure.
+- **A fixed "Capital to deploy" shrinks as you sell** from section 03, by the cash each sale used.
+  Blank means "all of buying power" and follows BP on its own.
+- **No start date.** Dropped at Steve's request. The equity chart starts at the first event.
+- **Named Wheeler** (repo name). The storage key stays `wheel.v1`: it's invisible, and renaming it
+  would strand data already entered on the live site.
 - **Bring in existing shares.** "Premium already collected" lowers basis but not account P/L,
   because it's already inside the starting value.

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Wheel</title>
+<title>Wheeler</title>
 <meta name="description" content="Cash-secured puts, assignment and covered calls, tracked by basis. Value, buying power, return, and which puts to sell this week.">
 <meta name="color-scheme" content="dark">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230b0e13'/%3E%3Ctext x='16' y='24' font-size='20' font-family='monospace' font-weight='700' fill='%234d9fff' text-anchor='middle'%3EW%3C/text%3E%3C/svg%3E">
@@ -101,7 +101,7 @@ button.x:hover{color:var(--red);border-color:var(--red)}
 .fields>div>label{margin-top:auto}
 .fields.two{grid-template-columns:1fr 1fr}
 @media(min-width:1120px){
-  .fields.acctrow{grid-template-columns:150px 150px 130px 150px}
+  .fields.acctrow{grid-template-columns:150px 130px 150px}
   .fields.nprow{grid-template-columns:96px 104px 150px 88px 110px 100px 150px minmax(170px,1fr)}
 }
 
@@ -206,7 +206,7 @@ details[open] summary::before{content:"\25BE  "}
 <div id="saveAlert"></div>
 
 <div class="mast">
-  <div class="logo"><span class="gold">W</span>heel</div>
+  <div class="logo"><span class="gold">W</span>heeler</div>
   <div class="clock" id="clock" aria-live="off"></div>
 </div>
 <p class="tagline">
@@ -226,7 +226,6 @@ details[open] summary::before{content:"\25BE  "}
     <div class="tabs" id="tabs"></div>
     <div class="fields acctrow">
       <div><label for="s_start">Starting value</label><input id="s_start" type="number" step="0.01"></div>
-      <div><label for="s_startDate">Start date</label><input id="s_startDate" type="date"></div>
       <div><label for="s_fee">Fees per contract</label><input id="s_fee" type="number" step="0.01" min="0"></div>
       <div><label for="s_min">Min weekly return %</label><input id="s_min" type="number" step="0.05" min="0"></div>
     </div>
@@ -429,11 +428,11 @@ const uid = () => Date.now().toString(36).slice(-5) + Math.random().toString(36)
 const nextN = () => (root.seq = (root.seq||0) + 1);
 
 function newAccount(name, start){
-  return { id:uid(), name:name||"Wheel", start: start==null ? 10000 : start, startDate: todayISO(),
+  return { id:uid(), name:name||"Wheeler", start: start==null ? 10000 : start,
            fee:0.65, minWeekly:0.5, capital:null, flows:[], positions:[], cands:[] };
 }
 function newRoot(){
-  const a = newAccount("Wheel", 10000);
+  const a = newAccount("Wheeler", 10000);
   return { v:SCHEMA, seq:0, active:a.id, order:[a.id], accounts:{[a.id]:a}, collapsed:{} };
 }
 const acct = () => root.accounts[root.active];
@@ -461,7 +460,7 @@ function normalize(){
   Object.keys(root.accounts).forEach(id=>{
     const a = root.accounts[id];
     a.id = id;
-    ["name","start","startDate","fee","minWeekly"].forEach(k=>{ if(a[k]==null) a[k] = d[k]; });
+    ["name","start","fee","minWeekly"].forEach(k=>{ if(a[k]==null) a[k] = d[k]; });
     if(a.capital===undefined) a.capital = null;
     ["flows","positions","cands"].forEach(k=>{ if(!Array.isArray(a[k])) a[k] = []; });
     a.flows.forEach(f=>{ if(!f.id) f.id = uid(); maxN = Math.max(maxN, f.n||0); });
@@ -602,10 +601,10 @@ function derivePos(p){
   });
 
   const openLegs = p.legs.filter(L=>!L.close);
-  let longc = 0, sfees = 0, nPutC = 0, nCallC = 0, nLongC = 0;
+  let longc = 0, snet = 0, nPutC = 0, nCallC = 0, nLongC = 0;
   openLegs.forEach(L=>{
     if(L.side==="long"){ longc += L.open.price*100*L.qty + L.open.fees; nLongC += L.qty; }
-    else { sfees += L.open.fees; if(L.type==="put") nPutC += L.qty; else nCallC += L.qty; }
+    else { snet += L.open.price*100*L.qty - L.open.fees; if(L.type==="put") nPutC += L.qty; else nCallC += L.qty; }
   });
   const flat = sh===0 && openLegs.length===0;
   const first = ev.length ? ev[0].date : todayISO();
@@ -636,7 +635,7 @@ function derivePos(p){
 
   return { sh, cost, avg: sh>0 ? cost/sh : null, adj: sh>0 ? (cost - rOpt - rSh - carry)/sh : null,
            rOpt:r2(rOpt), rSh:r2(rSh), real, carry, total, coll, peak, capNow: cost + coll + longc,
-           longc, sfees, nPutC, nCallC, nLongC, openLegs, flat, first, last, days,
+           longc, snet, nPutC, nCallC, nLongC, openLegs, flat, first, last, days,
            roe, ann: roe==null ? null : annual(roe, days), fp, rows, rev };
 }
 
@@ -664,12 +663,12 @@ function pathOf(p){
 }
 
 function deriveAcct(a){
-  const o = { flows:0, real:0, cost:0, coll:0, longc:0, sfees:0, nPutC:0, nHold:0,
+  const o = { flows:0, real:0, cost:0, coll:0, longc:0, snet:0, nPutC:0, nHold:0,
               unreal:0, marked:0, unmarked:0, open:[], closed:[], points:[] };
   a.flows.forEach(f=>{ o.flows += f.amount; o.points.push({date:f.date, n:f.n||0, amt:f.amount}); });
   a.positions.forEach(p=>{
     const d = derivePos(p);
-    o.real += d.real; o.cost += d.cost; o.coll += d.coll; o.longc += d.longc; o.sfees += d.sfees; o.nPutC += d.nPutC;
+    o.real += d.real; o.cost += d.cost; o.coll += d.coll; o.longc += d.longc; o.snet += d.snet; o.nPutC += d.nPutC;
     if(d.sh>0){
       o.nHold++;
       if(p.mark>0){ o.unreal += (p.mark - d.avg)*d.sh; o.marked++; } else o.unmarked++;
@@ -679,8 +678,9 @@ function deriveAcct(a){
   });
   o.flows = r2(o.flows); o.real = r2(o.real);
   o.value = r2(a.start + o.flows + o.real);
-  // Free cash, conservatively: premium on a short option still open is not counted until it closes.
-  o.bp = r2(o.value - o.cost - o.coll - o.longc - o.sfees);
+  // Free cash, as a broker counts it for cash-secured puts: the credit from a short still open is in
+  // the account and offsets collateral. It is not P/L until the leg closes, so it stays out of value.
+  o.bp = r2(o.value - o.cost - o.coll - o.longc + o.snet);
   return o;
 }
 
@@ -771,7 +771,7 @@ window.toggleSection = k => { root.collapsed[k] = !root.collapsed[k]; save(); re
 function setVal(id, v){ const el = $(id); if(el && document.activeElement!==el) el.value = v; }
 function syncInputs(){
   const a = acct();
-  setVal("s_start", a.start); setVal("s_startDate", a.startDate);
+  setVal("s_start", a.start);
   setVal("s_fee", a.fee); setVal("s_min", a.minWeekly);
   setVal("sel_cap", a.capital==null ? "" : a.capital);
 }
@@ -809,24 +809,28 @@ function renderAccount(){
   // The answer box: the highest strike one more cash-secured put can carry.
   const bp = d.bp;
   let h;
-  if(bp < 100){
+  // The put's own credit lands in the account the moment it sells and counts toward its collateral,
+  // so the ceiling is (free cash − fees) / 100, plus whatever the put pays per share.
+  const m = n => Math.floor((bp - n*a.fee)/(100*n)*100)/100;
+  if(m(1) < 1){
     h = '<div class="calans" style="color:var(--amber)">No room for another put</div>' +
         '<div class="calsub">' + (bp<-EPS
           ? 'Buying power is <b>' + fmt$(bp) + '</b> &mdash; more is committed than the account holds. Usually a missing deposit or a fill typed wrong.'
           : 'Buying power is <b>' + fmt$(bp) + '</b>, under the $100 a single $1 strike would need.') + '</div>';
   } else {
-    const m = n => Math.floor(bp/(100*n)*100)/100;
-    h = '<div class="calans">Max put strike ' + fmtP(m(1)) + '</div>' +
-        '<div class="calsub"><b>' + fmt$(bp) + '</b> free &divide; 100 shares a contract. Two contracts: up to <b>' + fmtP(m(2)) +
-        '</b> each' + VBAR + 'three: <b>' + fmtP(m(3)) + '</b>' + VBAR + 'five: <b>' + fmtP(m(5)) + '</b>.</div>';
+    h = '<div class="calans">Max put strike ' + fmtP(m(1)) + ' + the credit</div>' +
+        '<div class="calsub"><b>' + fmt$(bp) + '</b> free, less fees, &divide; 100 shares a contract &mdash; then add the credit per share, ' +
+        'since it comes in as the put sells. A $0.50 credit makes it <b>' + fmtP(m(1) + 0.5) + '</b>.</div>' +
+        '<div class="calsub">Two contracts: up to <b>' + fmtP(m(2)) + '</b> + credit each' + VBAR + 'three: <b>' + fmtP(m(3)) +
+        '</b>' + VBAR + 'five: <b>' + fmtP(m(5)) + '</b>.</div>';
   }
-  const parts = [fmt$(d.value) + " value"];
-  if(d.cost>EPS)  parts.push(fmt$(d.cost) + " in shares");
-  if(d.coll>EPS)  parts.push(fmt$(d.coll) + " put collateral");
-  if(d.longc>EPS) parts.push(fmt$(d.longc) + " in long puts");
-  if(d.sfees>EPS) parts.push(fmt$(d.sfees) + " fees on open legs");
-  h += '<div class="calsub calrule">' + parts.join(" &minus; ") + " = " + fmt$(bp) +
-       '. Premium on short options still open is left out until they close &mdash; it is not yours yet.</div>';
+  let brk = fmt$(d.value) + " value";
+  if(d.cost>EPS)  brk += " &minus; " + fmt$(d.cost) + " in shares";
+  if(d.coll>EPS)  brk += " &minus; " + fmt$(d.coll) + " put collateral";
+  if(d.longc>EPS) brk += " &minus; " + fmt$(d.longc) + " in long puts";
+  if(d.snet>EPS)  brk += " + " + fmt$(d.snet) + " credit on open shorts";
+  h += '<div class="calsub calrule">' + brk + " = " + fmt$(bp) +
+       (d.snet>EPS ? '. Open credit is cash you hold and counts here; it only becomes P/L, and joins account value, when the leg closes.' : ".") + '</div>';
   $("maxBox").innerHTML = h;
 
   $("flowsCount").textContent = a.flows.length ? "(" + a.flows.length + ", net " + sgn$(d.flows) + ")" : "";
@@ -855,42 +859,68 @@ function selRows(a, cap){
     if(r.days < 0) r.why = "expired";
     else if(r.net <= 0) r.why = "fees eat it";
     else if(r.wk*100 < a.minWeekly - 1e-9) r.why = "below " + a.minWeekly + "%";
-    else if(r.coll > cap + 1e-9) r.why = "too big";
+    else if(r.coll - r.net > cap + 1e-9) r.why = "too big";
     else r.ok = true;
     return r;
   });
 }
 
-// Bounded knapsack: the whole-contract mix with the most weekly net credit whose collateral fits.
-// Collateral is counted in units of the largest common step of every strike, so $40/$60/$100
-// strikes run in $1,000 units and the table stays small. If capital is enormous relative to that
-// step, units are coarsened and each strike's collateral rounded UP — the answer can then miss by a
-// sliver, but it can never spend more than you have.
+// Bounded knapsack: the whole-contract mix with the most net credit that the capital can secure.
+// A put's credit arrives as it sells and counts toward its own collateral, so the constraint is
+//     Σ (collateral − net credit) ≤ capital
+// not Σ collateral ≤ capital. $10,000 can carry $10,100 of puts that pay $113.70.
+//
+// The objective is total dollars, which is the same thing as return on the whole capital figure —
+// a mix is never preferred for a higher percentage on a smaller slice of the account.
 const gcd = (x,y) => { while(y){ const t = y; y = x % y; x = t; } return x; };
-function knapsack(items, cap){
-  const cents = items.map(it=>Math.round(it.w*100));
-  const g = cents.reduce(gcd, 0) || 1, capC = Math.round(cap*100);
-  const LIM = 200000;
-  let unit = g, capU = Math.floor(capC/unit), approx = false;
-  if(capU > LIM){ unit = g*Math.ceil(capU/LIM); capU = Math.floor(capC/unit); approx = true; }
-  const wU = cents.map(c=>Math.ceil(c/unit));
+const DP_LIM = 400000;
+// 0/1 knapsack over binary-split parts; dp[c] = best value with weight ≤ c.
+function kpTable(wU, vals, maxes, W){
   const parts = [];
-  items.forEach((it,i)=>{
-    let k = 1, left = it.max;
-    while(left>0){ const t = Math.min(k,left); parts.push({i, cnt:t, w:wU[i]*t, v:it.v*t}); left -= t; k *= 2; }
+  wU.forEach((w,i)=>{
+    let k = 1, left = maxes[i];
+    while(left>0){ const t = Math.min(k,left); parts.push({i, cnt:t, w:w*t, v:vals[i]*t}); left -= t; k *= 2; }
   });
-  const dp = new Float64Array(capU+1), take = parts.map(()=>new Uint8Array(capU+1));
+  const dp = new Float64Array(W+1), take = parts.map(()=>new Uint8Array(W+1));
   parts.forEach((pt,j)=>{
     const T = take[j];
-    for(let c=capU; c>=pt.w; c--){
+    for(let c=W; c>=pt.w; c--){
       const nv = dp[c-pt.w] + pt.v;
       if(nv > dp[c] + 1e-9){ dp[c] = nv; T[c] = 1; }
     }
   });
-  const cnt = items.map(()=>0);
-  let c = capU;
-  for(let j=parts.length-1; j>=0; j--) if(take[j][c]){ cnt[parts[j].i] += parts[j].cnt; c -= parts[j].w; }
-  return {cnt, approx};
+  return {dp, take, parts};
+}
+function kpPick(t, c, n){
+  const cnt = new Array(n).fill(0);
+  for(let j=t.parts.length-1; j>=0; j--) if(t.take[j][c]){ cnt[t.parts[j].i] += t.parts[j].cnt; c -= t.parts[j].w; }
+  return cnt;
+}
+// items: {coll, net, v, max}. With one expiry v is proportional to net, and the search is exact:
+// weight is collateral in the strikes' common step ($40/$50/$51 run in $100 units), dp holds the
+// most net credit at each collateral level, and the best level whose collateral less that credit
+// fits the capital wins. With mixed expiries, v (credit per week) and cash differ, so weight becomes
+// cash needed, in units coarsened when necessary and always rounded UP — it can then miss a mix by
+// a few cents of slack, but it can never ask for more than you have.
+function knapsack(items, cap, oneExp){
+  const n = items.length, capC = Math.round(cap*100);
+  if(oneExp){
+    const cents = items.map(it=>Math.round(it.coll*100));
+    const g = cents.reduce(gcd, 0) || 1;
+    const top = capC + Math.round(items.reduce((s,it)=>s + Math.max(0,it.net)*it.max, 0)*100);
+    const W = Math.floor(top/g);
+    if(W <= DP_LIM){
+      const t = kpTable(cents.map(c=>c/g), items.map(it=>it.net), items.map(it=>it.max), W);
+      let best = 0, at = 0;
+      for(let c=0; c<=W; c++) if(c*g - t.dp[c]*100 <= capC + 1e-6 && t.dp[c] > best + 1e-9){ best = t.dp[c]; at = c; }
+      return {cnt:kpPick(t, at, n), approx:false};
+    }
+  }
+  const need = items.map(it=>Math.round((it.coll - it.net)*100));
+  let unit = Math.max(1, need.reduce(gcd, 0)), W = Math.floor(capC/unit), approx = false;
+  if(W > DP_LIM){ unit *= Math.ceil(W/DP_LIM); W = Math.floor(capC/unit); approx = true; }
+  const t = kpTable(need.map(c=>Math.max(1, Math.ceil(c/unit))), items.map(it=>it.v), items.map(it=>it.max), W);
+  return {cnt:kpPick(t, W, n), approx};
 }
 
 function expOptions(sel){
@@ -953,7 +983,8 @@ function selCompute(){
                             : "Holding back " + fmt$(bp - a.capital) + " of " + fmt$(bp) + " free.");
   const rows = selRows(a, cap);
   const elig = rows.filter(r=>r.ok);
-  const k = elig.length ? knapsack(elig.map(r=>({w:r.coll, v:r.val, max:r.max})), cap) : {cnt:[], approx:false};
+  const oneExpAll = elig.every(r=>r.exp===(elig[0]||{}).exp);
+  const k = elig.length ? knapsack(elig.map(r=>({coll:r.coll, net:r.net, v:r.val, max:r.max})), cap, oneExpAll) : {cnt:[], approx:false};
   const take = {};
   elig.forEach((r,j)=>{ if(k.cnt[j]) take[r.i] = k.cnt[j]; });
 
@@ -983,11 +1014,11 @@ function selCompute(){
   }
   let used = 0, gross = 0, fees = 0, val = 0;
   picks.forEach(x=>{ used += x.r.coll*x.n; gross += x.r.credit*100*x.n; fees += a.fee*x.n; val += x.r.val*x.n; });
-  const net = gross - fees, left = cap - used;
+  const net = gross - fees, cash = used - net, left = cap - cash;
   const exps = {}; picks.forEach(x=>exps[x.r.exp] = 1);
   const oneExp = Object.keys(exps).length===1;
   // The strongest single contract, to say what the mix is worth over the obvious choice.
-  const best = elig.filter(r=>r.coll <= cap + 1e-9).sort((x,y)=>y.val-x.val)[0];
+  const best = elig.filter(r=>r.coll - r.net <= cap + 1e-9).sort((x,y)=>y.val-x.val)[0];
   let vs = "";
   if(best && !(picks.length===1 && picks[0].n===1)){
     const allSame = elig.every(r=>r.exp===best.exp) && oneExp;
@@ -1001,12 +1032,18 @@ function selCompute(){
       " @ " + fmtP(r.credit) + '</span><span class="muted">' + fmt$(r.coll*x.n) + " collateral" + VBAR + fmt$(r.net*x.n) + " net" + VBAR +
       pct(r.wk) + " a week</span>" + '<button class="small" style="margin-left:auto" onclick="pickToForm(' + picks.indexOf(x) + ')">Sell</button></div>';
   }).join("");
+  // Returns are stated on the whole capital figure, because that is what is being maximized: an idle
+  // dollar earns nothing and has to count against the week.
+  const wkCap = oneExp ? weekly(net/cap, picks[0].r.days) : val/cap;
+  const nextMax = Math.floor((left - a.fee)/100*100)/100;
   out.innerHTML = '<div class="calbox"><div class="calans">Sell ' + plural(picks.reduce((s,x)=>s+x.n,0),"contract") + " for " + fmt$(net) + " net</div>" +
-    '<div class="calsub">' + fmt$(gross) + " credit less " + fmt$(fees) + " fees on <b>" + fmt$(used) + "</b> of " + fmt$(cap) + " &mdash; <b>" +
-    pct(used>0 ? (oneExp ? weekly(net/used, picks[0].r.days) : val/used) : null) + "</b> a week on the cash used, " +
-    pct(used>0 ? (oneExp ? annual(net/used, picks[0].r.days) : val/used*365/7) : null,1) + " annualized.</div>" + vs +
+    '<div class="calsub"><b>' + pct(wkCap) + "</b> a week on all " + fmt$(cap) + " of capital" + VBAR + "<b>" + pct(wkCap*365/7,1) + "</b> annualized, simple. " +
+    fmt$(gross) + " credit less " + fmt$(fees) + " fees.</div>" +
+    '<div class="calsub">' + fmt$(used) + " of collateral" + (used > cap + EPS
+      ? ": " + fmt$(cap) + " of your cash and <b>" + fmt$(used - cap) + "</b> covered by the credit as it comes in."
+      : ", " + fmt$(cash) + " of your cash once the credit lands.") + "</div>" + vs +
     '<div class="calrule">' + lines + "</div>" +
-    '<div class="calsub calrule">Leaves ' + fmt$(left) + (left >= 100 ? " &mdash; room for one more put up to " + fmtP(Math.floor(left)/100) + " strike." : ".") +
+    '<div class="calsub calrule">Leaves ' + fmt$(left) + (nextMax >= 1 ? " &mdash; room for one more put up to " + fmtP(nextMax) + " strike plus its credit." : ".") +
     (oneExp ? "" : " Expiries differ, so the picks are ranked on credit per week.") +
     (k.approx ? " Capital is large next to the strike steps, so collateral was rounded up to a coarser unit; the mix may leave a little on the table." : "") +
     "</div></div>";
@@ -1055,8 +1092,8 @@ function updateNP(){
     if(!s.err) h += '<div class="calsub">If assigned: ' + fmtQ(s.sh) + " shares, basis <b>" + fmtP(s.adj) + "</b>" +
       (derivePos(into).adj!=null ? " (from " + fmtP(derivePos(into).adj) + ")" : "") + ".</div>";
   }
-  h += '<div class="calsub calrule">Buying power ' + fmt$(d.bp) + " &rarr; " + fmt$(d.bp - coll - f.fees) + " once sold.</div></div>";
-  if(coll > d.bp + EPS) h += '<div class="flag red">That is ' + fmt$(coll - d.bp) + " more collateral than you have free. Your call &mdash; nothing here stops you.</div>";
+  h += '<div class="calsub calrule">Buying power ' + fmt$(d.bp) + " &rarr; " + fmt$(d.bp - coll + net) + " once sold, the credit counted toward collateral.</div></div>";
+  if(coll - net > d.bp + EPS) h += '<div class="flag red">Even with the credit, that is ' + fmt$(coll - net - d.bp) + " more collateral than you have free. Your call &mdash; nothing here stops you.</div>";
   if(wk*100 < a.minWeekly - 1e-9) h += '<div class="flag amber">Below your ' + a.minWeekly + "% weekly minimum.</div>";
   if(days < 0) h += '<div class="flag red">Expiry is before the sale date.</div>';
   else if(!isFriday(f.exp)) h += '<div class="flag mut">Expiry isn\'t a Friday &mdash; fine for a holiday week, worth a second look otherwise.</div>';
@@ -1072,6 +1109,9 @@ function recordNP(){
   let p = f.into ? a.positions.find(x=>x.id===f.into) : null;
   if(!p){ p = {id:uid(), sym:f.sym, legs:[], shares:[], mark:null, carry:0, shut:false}; a.positions.push(p); }
   addLeg(p, {type:"put", side:"short", strike:f.strike, exp:f.exp, qty:f.qty, date:f.date, price:f.credit, fees:f.fees});
+  // A fixed capital figure is this week's plan. Spend part of it and the plan shrinks by the cash
+  // used, so the selector's next answer is about what is left, not the whole amount again.
+  if(a.capital!=null) a.capital = Math.max(0, r2(a.capital - (f.strike*100*f.qty - (f.credit*100*f.qty - f.fees))));
   save();
   // Drop the matching row from the selector: it has been acted on.
   const ci = a.cands.findIndex(c=>c.sym===f.sym && num(c.strike)===f.strike && c.exp===f.exp);
@@ -1298,9 +1338,9 @@ window.posAction = (pid, kind) => {
       if(100*f.qty > uncovered) h += '<div class="flag amber">Covers ' + fmtQ(Math.max(0,uncovered)) + " uncovered shares &mdash; " +
         plural(f.qty - Math.max(0,Math.floor(uncovered/100)),"contract") + " would be naked. Recorded if you go ahead.</div>";
     } else if(kind==="sellput"){
-      const ad = acct(), dd = deriveAcct(ad), coll = f.strike*100*f.qty;
-      h += '<div class="flag mut">' + fmt$(coll) + " collateral; buying power " + fmt$(dd.bp) + " &rarr; " + fmt$(dd.bp - coll - f.fees) + ".</div>";
-      if(coll > dd.bp + EPS) h += '<div class="flag red">That is ' + fmt$(coll - dd.bp) + " more than you have free. Your call.</div>";
+      const ad = acct(), dd = deriveAcct(ad), coll = f.strike*100*f.qty, net = f.price*100*f.qty - f.fees;
+      h += '<div class="flag mut">' + fmt$(coll) + " collateral less " + fmt$(net) + " credit; buying power " + fmt$(dd.bp) + " &rarr; " + fmt$(dd.bp - coll + net) + ".</div>";
+      if(coll - net > dd.bp + EPS) h += '<div class="flag red">Even with the credit, that is ' + fmt$(coll - net - dd.bp) + " more than you have free. Your call.</div>";
     } else if(kind==="buysh"){
       h += '<div class="flag mut">' + fmtQ(s.sh) + " shares, avg cost " + fmtP(s.avg) + ", basis <b class=\"gold\">" + fmtP(s.adj) + "</b>" + (d.adj!=null ? " (from " + fmtP(d.adj) + ")" : "") + ".</div>";
     } else if(kind==="sellsh"){
@@ -1480,7 +1520,7 @@ function drawEquity(a, d){
   $("eqBox").style.display = pts.length ? "" : "none";
   if(!pts.length){ svg.innerHTML = ""; return; }
   let v = a.start;
-  const s = [{x:dnum(a.startDate < pts[0].date ? a.startDate : pts[0].date), y:v}];
+  const s = [{x:dnum(pts[0].date), y:v}];
   pts.forEach(e=>{ v += e.amt; s.push({x:dnum(e.date), y:v}); });
   s.push({x:Math.max(dnum(todayISO()), s[s.length-1].x), y:v});
   const W = 560, H = 150, L = 4, R = 4, T = 10, B = 16;
@@ -1535,7 +1575,6 @@ function initRail(){
 function wire(){
   const setA = (id, fn) => $(id).addEventListener("change", e=>{ fn(acct(), e.target.value); save(); render(); });
   setA("s_start",     (a,v)=>{ if(num(v)!=null) a.start = r2(num(v)); });
-  setA("s_startDate", (a,v)=>{ if(v) a.startDate = v; });
   setA("s_fee",       (a,v)=>{ if(num(v)>=0) a.fee = num(v); });
   setA("s_min",       (a,v)=>{ if(num(v)>=0) a.minWeekly = num(v); });
   $("sel_cap").addEventListener("input", e=>{ const v = num(e.target.value); acct().capital = v>=0 ? v : null; save(); selCompute(); });
@@ -1589,7 +1628,7 @@ function wire(){
   $("downloadBtn").addEventListener("click", ()=>{
     const blob = new Blob([JSON.stringify(root,null,1)], {type:"application/json"});
     const u = URL.createObjectURL(blob), el = document.createElement("a");
-    el.href = u; el.download = "wheel-" + todayISO() + ".json"; document.body.appendChild(el); el.click();
+    el.href = u; el.download = "wheeler-" + todayISO() + ".json"; document.body.appendChild(el); el.click();
     setTimeout(()=>{ URL.revokeObjectURL(u); el.remove(); }, 0);
   });
   $("uploadBtn").addEventListener("click", ()=>$("fileInput").click());
