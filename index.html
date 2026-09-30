@@ -325,7 +325,7 @@ details[open] summary::before{content:"\25BE  "}
     <div class="scroll" style="margin-top:12px"><table id="closedTbl"></table></div>
     <div class="metric" style="margin-top:12px;padding:10px 12px" id="eqBox">
       <div class="k">Account value over time &mdash; closed P/L and cash flows</div>
-      <svg class="chart" id="eqChart" viewBox="0 0 560 150" preserveAspectRatio="none"></svg>
+      <svg class="chart" id="eqChart" viewBox="0 0 560 150"></svg>
     </div>
     <div class="hint">
       Return on equity is total P/L over the most capital the position ever tied up &mdash; put collateral plus shares
@@ -769,7 +769,11 @@ function renderSections(){
     if(t) t.innerHTML = shut ? "&#9656;" : "&#9662;";
   });
 }
-window.toggleSection = k => { root.collapsed[k] = !root.collapsed[k]; save(); renderSections(); };
+window.toggleSection = k => {
+  root.collapsed[k] = !root.collapsed[k]; save(); renderSections();
+  // A hidden chart has no width to measure, so draw it again once its section opens.
+  if(k==="closed" && !root.collapsed[k]){ const a = acct(); drawEquity(a, deriveAcct(a)); }
+};
 
 // Never write into the field you are typing in.
 function setVal(id, v){ const el = $(id); if(el && document.activeElement!==el) el.value = v; }
@@ -1539,23 +1543,42 @@ function drawEquity(a, d){
   const svg = $("eqChart");
   $("eqBox").style.display = pts.length ? "" : "none";
   if(!pts.length){ svg.innerHTML = ""; return; }
+  // Drawn at the box's real pixel width rather than scaled into it, so text keeps its shape at any
+  // width. The window is at least two weeks: with every event on one day, a one-day window put the
+  // whole history in a single vertical stroke against the left edge.
+  const MIN_SPAN = 14;
+  const today = dnum(todayISO()), firstX = dnum(pts[0].date);
+  const x1 = Math.max(today, dnum(pts[pts.length-1].date));
+  const x0 = Math.min(firstX - 1, x1 - MIN_SPAN);
   let v = a.start;
-  const s = [{x:dnum(pts[0].date), y:v}];
+  const s = [{x:x0, y:v}];
   pts.forEach(e=>{ v += e.amt; s.push({x:dnum(e.date), y:v}); });
-  s.push({x:Math.max(dnum(todayISO()), s[s.length-1].x), y:v});
-  const W = 560, H = 150, L = 4, R = 4, T = 10, B = 16;
-  const x0 = s[0].x, x1 = Math.max(s[s.length-1].x, x0+1);
+  s.push({x:x1, y:v});
+  const W = Math.max(240, Math.round(svg.getBoundingClientRect().width) || 560), H = 150;
+  const L = 6, R = 6, T = 22, B = 20;
+  svg.setAttribute("viewBox", "0 0 " + W + " " + H);
   let y0 = Math.min.apply(null, s.map(p=>p.y)), y1 = Math.max.apply(null, s.map(p=>p.y));
-  const pad = Math.max((y1-y0)*0.12, 1); y0 -= pad; y1 += pad;
+  const pad = Math.max((y1-y0)*0.15, Math.abs(a.start)*0.002, 1); y0 -= pad; y1 += pad;
   const X = x => L + (x-x0)/(x1-x0)*(W-L-R), Y = y => T + (1-(y-y0)/(y1-y0))*(H-T-B);
   let path = "M" + X(s[0].x).toFixed(1) + " " + Y(s[0].y).toFixed(1);
   for(let i=1;i<s.length;i++) path += " H" + X(s[i].x).toFixed(1) + " V" + Y(s[i].y).toFixed(1);
+  const ex = X(x1), ey = Y(v), base = Y(a.start);
+  const txt = (x, y, anchor, fill, body, mono) => '<text x="'+x.toFixed(1)+'" y="'+y.toFixed(1)+'" fill="'+fill+'" font-size="11"'+
+    (anchor ? ' text-anchor="'+anchor+'"' : "") + (mono ? ' font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace"' : "") + '>'+esc(body)+'</text>';
+  // End label sits above the line unless that would leave the top of the box.
+  const ly = ey - 8 < 12 ? ey + 16 : ey - 8;
   svg.innerHTML =
-    '<line x1="'+L+'" x2="'+(W-R)+'" y1="'+Y(a.start).toFixed(1)+'" y2="'+Y(a.start).toFixed(1)+'" stroke="#2c3646" stroke-dasharray="3 4"/>' +
-    '<path d="'+path+'" fill="none" stroke="#b08d3f" stroke-width="1.8" vector-effect="non-scaling-stroke"/>' +
-    '<text x="'+L+'" y="'+(H-3)+'" fill="#697588" font-size="10">'+esc(fmtDY(iso(x0)))+'</text>' +
-    '<text x="'+(W-R)+'" y="'+(H-3)+'" fill="#697588" font-size="10" text-anchor="end">'+esc(fmt$(v))+'</text>';
+    '<line x1="'+L+'" x2="'+(W-R)+'" y1="'+base.toFixed(1)+'" y2="'+base.toFixed(1)+'" stroke="#2c3646" stroke-dasharray="3 4"/>' +
+    '<path d="'+path+'" fill="none" stroke="#b08d3f" stroke-width="1.8"/>' +
+    '<circle cx="'+ex.toFixed(1)+'" cy="'+ey.toFixed(1)+'" r="3" fill="#b08d3f"/>' +
+    txt(L, Math.abs(base - ey) < 14 && base > ey ? base + 14 : base - 6, "", "#697588", "start " + fmt$(a.start), true) +
+    txt(ex - 6, ly, "end", v >= a.start ? "#2fd583" : "#f4655f", fmt$(v) + "  " + sgn$(v - a.start), true) +
+    txt(L, H - 4, "", "#697588", fmtDY(iso(x0))) +
+    txt(W - R, H - 4, "end", "#697588", fmtDY(iso(x1)));
 }
+// Redraw at the new width when the window changes size.
+let eqResize = null;
+window.addEventListener("resize", ()=>{ clearTimeout(eqResize); eqResize = setTimeout(()=>{ const a = acct(); drawEquity(a, deriveAcct(a)); }, 120); });
 
 /* ---------------- 06 · Data ---------------- */
 function applyImport(){
