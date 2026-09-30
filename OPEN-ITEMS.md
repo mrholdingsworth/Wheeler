@@ -19,9 +19,15 @@ Single self-contained `index.html`, house style from `../PROJECT-HANDOFF.md`. St
 - **Buying power counts open credit, as a broker does** (changed 2026-09-29, at Steve's request
   via the selector). A put's net credit lands when it sells and offsets its own collateral:
   `BP = value − shares at cost − put collateral − long puts + net credit on open shorts`. It
-  still isn't *P/L*, so account value only moves when the leg closes. Max put strike is therefore
-  `(BP − fee) / 100 + the credit per share`. The first version left open credit out entirely. That
-  made BP go negative right after following the selector's advice, so it was reversed.
+  still isn't *P/L*, so account value only moves when the leg closes. The first version left open
+  credit out entirely. That made BP go negative right after following the selector's advice, so
+  it was reversed.
+- **No max-put-strike box.** Removed at Steve's request, since the selector covers it. The formula
+  is still `(BP − fee) / 100 + credit`, if it's ever wanted back as a one-liner.
+- **Expiry is always a Friday dropdown of exactly 8 choices**, in the selector, section 03 and the
+  position forms. In 03 and the forms the list starts at the trade date's Friday, so a back-dated
+  sale gets back-dated choices. A stored expiry that has dropped off the list replaces the
+  furthest Friday rather than adding a 9th. Checked across 400 consecutive start dates.
 - **Account value is closed P/L only**, to the penny. Shares count at cost. "Value at marks" shows
   up only when a position has a typed last price.
 - **Assignment realizes the put's premium** into the account. The same premium comes off the share
@@ -51,5 +57,9 @@ Single self-contained `index.html`, house style from `../PROJECT-HANDOFF.md`. St
 - **No start date.** Dropped at Steve's request. The equity chart starts at the first event.
 - **Named Wheeler** (repo name). The storage key stays `wheel.v1`: it's invisible, and renaming it
   would strand data already entered on the live site.
-- **Bring in existing shares.** "Premium already collected" lowers basis but not account P/L,
-  because it's already inside the starting value.
+- **Bring in existing shares** takes the unrecorded put as contracts, credit per share, buyback
+  debit per share, and total fees. That covers "sold a put, bought it back deep in the money, then
+  bought shares". Its net always comes off the basis. A select decides whether it also counts in
+  account P/L: "already in my starting value" (the default, and how older data is read) or
+  "happened since" (counted on the share date). Stored as `carry`, `carryIn`, `carryDate`,
+  `carryParts`.

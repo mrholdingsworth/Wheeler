@@ -230,7 +230,6 @@ details[open] summary::before{content:"\25BE  "}
       <div><label for="s_min">Min weekly return %</label><input id="s_min" type="number" step="0.05" min="0"></div>
     </div>
     <div class="statrow" id="acctStats" style="margin-top:14px"></div>
-    <div class="calbox" id="maxBox"></div>
     <details id="flowsBox">
       <summary>Deposits &amp; withdrawals <span class="muted" id="flowsCount"></span></summary>
       <div class="row" style="margin-top:10px">
@@ -287,7 +286,7 @@ details[open] summary::before{content:"\25BE  "}
     <div class="fields nprow" style="margin-top:10px">
       <div><label for="np_sym">Symbol</label><input id="np_sym" type="text" placeholder="xyz" style="text-transform:uppercase"></div>
       <div><label for="np_strike">Strike</label><input id="np_strike" type="number" step="any" placeholder="40"></div>
-      <div><label for="np_exp">Expiry</label><input id="np_exp" type="date"></div>
+      <div><label for="np_exp">Expiry</label><select id="np_exp"></select></div>
       <div><label for="np_qty">Contracts</label><input id="np_qty" type="number" step="1" min="1" value="1"></div>
       <div><label for="np_credit">Credit per share</label><input id="np_credit" type="number" step="any" placeholder="0.40"></div>
       <div><label for="np_fees">Fees</label><input id="np_fees" type="number" step="0.01" min="0" data-auto="1"></div>
@@ -400,9 +399,10 @@ const daysBetween = (a,b) => Math.round(dnum(b) - dnum(a));
 const isFriday = s => new Date(dnum(s)*864e5).getUTCDay() === 5;
 const fmtD = s => s ? new Date(dnum(s)*864e5).toLocaleDateString(undefined,{month:"short",day:"numeric",timeZone:"UTC"}) : "";
 const fmtDY = s => s ? new Date(dnum(s)*864e5).toLocaleDateString(undefined,{month:"short",day:"numeric",year:"numeric",timeZone:"UTC"}) : "";
-// Today counts if it is a Friday: a put sold Friday morning for that afternoon is a real trade.
-function fridays(n){
-  const t = dnum(todayISO()), dow = new Date(t*864e5).getUTCDay();
+// The n Fridays on or after a date (today by default). The day itself counts if it is a Friday: a
+// put sold Friday morning for that afternoon is a real trade.
+function fridays(n, from){
+  const t = dnum(from || todayISO()), dow = new Date(t*864e5).getUTCDay();
   const first = t + ((5 - dow + 7) % 7);
   const out = [];
   for(let i=0;i<n;i++) out.push(iso(first + 7*i));
@@ -469,6 +469,7 @@ function normalize(){
       if(!Array.isArray(p.legs)) p.legs = [];
       if(!Array.isArray(p.shares)) p.shares = [];
       if(p.carry==null) p.carry = 0;
+      if(p.carryIn==null) p.carryIn = true;     // the only kind there was before the choice existed
       p.legs.forEach(L=>{ maxN = Math.max(maxN, L.open.n||0, L.close ? (L.close.n||0) : 0); });
       p.shares.forEach(S=>{ maxN = Math.max(maxN, S.n||0); });
     });
@@ -610,9 +611,12 @@ function derivePos(p){
   const first = ev.length ? ev[0].date : todayISO();
   const last  = ev.length ? ev[ev.length-1].date : first;
   const days  = Math.max(0, daysBetween(first, flat ? last : todayISO()));
-  const carry = p.carry || 0;
-  const real  = r2(rOpt + rSh);            // what reaches the account
-  const total = r2(real + carry);          // what the position has earned, including before it was tracked here
+  // A put carried in counts in the basis always, and in the account only if it happened after the
+  // starting value was set (carryIn false); otherwise that cash is already inside the starting value.
+  const carry = p.carry || 0, carryReal = p.carryIn===false ? carry : 0;
+  if(carryReal) rev.push({date:p.carryDate || first, n:0, amt:carryReal, sym:p.sym});
+  const real  = r2(rOpt + rSh + carryReal);  // what reaches the account
+  const total = r2(rOpt + rSh + carry);      // what the position has earned, including before it was tracked here
   const roe   = peak>0 ? total/peak : null;
 
   // The first short put, and any pieces it was split into by a partial close. Its return on the cash
@@ -774,6 +778,7 @@ function syncInputs(){
   setVal("s_start", a.start);
   setVal("s_fee", a.fee); setVal("s_min", a.minWeekly);
   setVal("sel_cap", a.capital==null ? "" : a.capital);
+  if(document.activeElement!==$("np_exp")) setNpExp();
 }
 
 function renderTabs(){
@@ -805,33 +810,6 @@ function renderAccount(){
                : "enter a last price on a position");
   }
   $("acctStats").innerHTML = tiles;
-
-  // The answer box: the highest strike one more cash-secured put can carry.
-  const bp = d.bp;
-  let h;
-  // The put's own credit lands in the account the moment it sells and counts toward its collateral,
-  // so the ceiling is (free cash − fees) / 100, plus whatever the put pays per share.
-  const m = n => Math.floor((bp - n*a.fee)/(100*n)*100)/100;
-  if(m(1) < 1){
-    h = '<div class="calans" style="color:var(--amber)">No room for another put</div>' +
-        '<div class="calsub">' + (bp<-EPS
-          ? 'Buying power is <b>' + fmt$(bp) + '</b> &mdash; more is committed than the account holds. Usually a missing deposit or a fill typed wrong.'
-          : 'Buying power is <b>' + fmt$(bp) + '</b>, under the $100 a single $1 strike would need.') + '</div>';
-  } else {
-    h = '<div class="calans">Max put strike ' + fmtP(m(1)) + ' + the credit</div>' +
-        '<div class="calsub"><b>' + fmt$(bp) + '</b> free, less fees, &divide; 100 shares a contract &mdash; then add the credit per share, ' +
-        'since it comes in as the put sells. A $0.50 credit makes it <b>' + fmtP(m(1) + 0.5) + '</b>.</div>' +
-        '<div class="calsub">Two contracts: up to <b>' + fmtP(m(2)) + '</b> + credit each' + VBAR + 'three: <b>' + fmtP(m(3)) +
-        '</b>' + VBAR + 'five: <b>' + fmtP(m(5)) + '</b>.</div>';
-  }
-  let brk = fmt$(d.value) + " value";
-  if(d.cost>EPS)  brk += " &minus; " + fmt$(d.cost) + " in shares";
-  if(d.coll>EPS)  brk += " &minus; " + fmt$(d.coll) + " put collateral";
-  if(d.longc>EPS) brk += " &minus; " + fmt$(d.longc) + " in long puts";
-  if(d.snet>EPS)  brk += " + " + fmt$(d.snet) + " credit on open shorts";
-  h += '<div class="calsub calrule">' + brk + " = " + fmt$(bp) +
-       (d.snet>EPS ? '. Open credit is cash you hold and counts here; it only becomes P/L, and joins account value, when the leg closes.' : ".") + '</div>';
-  $("maxBox").innerHTML = h;
 
   $("flowsCount").textContent = a.flows.length ? "(" + a.flows.length + ", net " + sgn$(d.flows) + ")" : "";
   $("flowsTbl").innerHTML = a.flows.length
@@ -923,9 +901,13 @@ function knapsack(items, cap, oneExp){
   return {cnt:kpPick(t, W, n), approx};
 }
 
-function expOptions(sel){
-  const fr = fridays(8);
-  if(sel && fr.indexOf(sel)<0) fr.unshift(sel);
+// Always exactly EXP_N choices. A saved expiry that has fallen off the front of the list — last
+// week's, or one entered before the sale date moved — is kept as the first option in place of the
+// furthest Friday, so the list never grows past EXP_N and a stored value is never silently changed.
+const EXP_N = 8;
+function expOptions(sel, from){
+  let fr = fridays(EXP_N, from);
+  if(sel && fr.indexOf(sel)<0) fr = [sel].concat(fr.slice(0, EXP_N-1));
   return fr.map(f=>'<option value="'+f+'"'+(f===sel?" selected":"")+'>'+fmtD(f)+(isFriday(f)?"":" (not a Fri)")+'</option>').join("");
 }
 function renderSelTable(){
@@ -1051,7 +1033,8 @@ function selCompute(){
 window.pickToForm = i => {
   const x = lastPicks[i]; if(!x) return;
   const r = x.r;
-  $("np_sym").value = r.c.sym || ""; $("np_strike").value = r.strike; $("np_exp").value = r.exp;
+  $("np_sym").value = r.c.sym || ""; $("np_strike").value = r.strike;
+  $("np_date").value = todayISO(); setNpExp(r.exp);
   $("np_qty").value = x.n; $("np_credit").value = r.credit;
   $("np_fees").dataset.touched = ""; autoFee("np_qty","np_fees");
   root.collapsed.new = false; renderSections();
@@ -1060,6 +1043,13 @@ window.pickToForm = i => {
 };
 
 /* ---------------- 03 · Sell a Put ---------------- */
+// Expiry offers the Fridays from the sale date on, so back-dating a sale back-dates the choices with
+// it. Keeps the current pick when it is still offered, otherwise lands on the first Friday.
+function setNpExp(want){
+  const el = $("np_exp"), from = $("np_date").value || todayISO();
+  const list = fridays(EXP_N, from), v = want || el.value;
+  el.innerHTML = expOptions(list.indexOf(v)>=0 ? v : list[0], from);
+}
 function autoFee(qid, fid){
   const f = $(fid), n = num($(qid).value);
   if(f && f.dataset.auto==="1" && !f.dataset.touched && n>0) f.value = r2(n*acct().fee).toFixed(2);
@@ -1141,7 +1131,11 @@ function historyTable(p, d, canUndo){
         '</td><td class="num">'+(r.fees ? fmt$(r.fees) : "")+'</td><td class="num '+cls(r.cash)+'">'+sgn$(r.cash)+
         '</td><td class="num '+(r.pl!=null ? cls(r.pl) : "")+'">'+(r.pl!=null ? sgn$(r.pl) : "")+'</td><td class="num">'+undo+'</td></tr>';
     }).join("") +
-    (p.carry ? '<tr><td></td><td class="muted">Premium carried in from before tracking &mdash; in the basis, not in account P/L</td><td></td><td></td><td></td><td class="num '+cls(p.carry)+'">'+sgn$(p.carry)+'</td><td></td></tr>' : "") +
+    (p.carry ? '<tr><td class="nw">'+fmtD(p.carryDate||d.first)+'</td><td class="muted">Put carried in' +
+      (p.carryParts && p.carryParts.con ? ": " + p.carryParts.con + " &times; " + fmtP(p.carryParts.cr) + " credit, " + fmtP(p.carryParts.db) +
+        " buyback, " + fmt$(p.carryParts.of) + " fees" : "") +
+      " &mdash; " + (p.carryIn===false ? "in the basis and account P/L" : "in the basis; already in the starting value") +
+      '</td><td></td><td class="num">'+(p.carryParts && p.carryParts.of ? fmt$(p.carryParts.of) : "")+'</td><td></td><td class="num '+cls(p.carry)+'">'+sgn$(p.carry)+'</td><td></td></tr>' : "") +
     "</table>";
 }
 function posCard(p, d){
@@ -1303,7 +1297,8 @@ window.posAction = (pid, kind) => {
   const title = {sellput:"Sell a put", sellcall:"Sell a call", buyput:"Buy a put", buysh:"Buy shares", sellsh:"Sell shares"}[kind] + " &middot; " + esc(p.sym);
   let body = '<div class="fields two">' + fld("m_date","Date","date",todayISO());
   if(opt){
-    body += fld("m_strike","Strike","number","",'step="any"') + fld("m_exp","Expiry","date",nextFriday()) +
+    body += fld("m_strike","Strike","number","",'step="any"') +
+      '<div id="w_m_exp"><label for="m_exp">Expiry</label><select id="m_exp">' + expOptions(nextFriday()) + '</select></div>' +
       fld("m_qty","Contracts","number",qty0,'step="1" min="1"') +
       fld("m_price", kind==="buyput" ? "Debit per share" : "Credit per share","number","",'step="any"') +
       fld("m_fees","Fees","number",r2(qty0*a.fee).toFixed(2),'step="0.01" min="0" data-auto="1"');
@@ -1413,27 +1408,52 @@ window.closeUI = (pid, lid) => {
   });
 };
 
-// Start tracking shares already held before this app. Premium collected on them before now comes
-// off the basis but not into account P/L — that money is already inside the starting value.
+// Start tracking shares whose put was never recorded here — held from before this app, or bought
+// after a put that was sold, then bought back deep in the money. The put's history is entered as
+// three figures: what it paid, what the buyback cost, and the fees. Its net comes off the basis
+// either way. Whether it also lands in account P/L depends on when it happened: before the
+// starting value was set, it is already inside that number and counting it again would double it.
 window.bringIn = () => {
   const body = '<div class="fields two">' + fld("m_sym","Symbol","text","",'style="text-transform:uppercase"') +
-    fld("m_date","Acquired","date",todayISO()) + fld("m_qty","Shares","number",100,'step="1" min="1"') +
-    fld("m_price","Cost per share","number","",'step="any"') +
-    fld("m_carry","Premium already collected","number","0.00",'step="0.01"') + '</div>' +
-    '<div class="hint">Premium collected before today, net of fees, lowers the basis without touching account P/L &mdash; it is already in your ' +
-    'starting value. Set the starting value to cash plus what you paid for these shares, so buying power comes out right.</div>';
+    fld("m_date","Shares bought","date",todayISO()) + fld("m_qty","Shares","number",100,'step="1" min="1"') +
+    fld("m_price","Cost per share","number","",'step="any"') + '</div>' +
+    '<div class="lbl" style="margin-top:14px">The put before them</div>' +
+    '<div class="fields two">' + fld("m_con","Contracts","number",1,'step="1" min="0"') +
+    fld("m_cr","Credit per share at sale","number","0.00",'step="any" min="0"') +
+    fld("m_db","Buyback debit per share","number","0.00",'step="any" min="0"') +
+    fld("m_of","Fees, sale and buyback","number","0.00",'step="0.01" min="0"') +
+    '<div style="grid-column:1/-1"><label for="m_in">Put P/L</label><select id="m_in">' +
+      '<option value="1">Already in my starting value &mdash; basis only</option>' +
+      '<option value="0">Happened since &mdash; add it to account P/L too</option></select></div></div>';
+  const read = () => {
+    const con = mn("m_con")||0, cr = mn("m_cr")||0, db = mn("m_db")||0, of = mn("m_of")||0;
+    return { sym:mv("m_sym").trim().toUpperCase(), qty:mn("m_qty"), price:mn("m_price"), date:mv("m_date")||todayISO(),
+             con, cr, db, of, net: r2(cr*100*con - db*100*con - of), inStart: mv("m_in")==="1" };
+  };
   openModal("Bring in existing shares", body, "Add position", () => {
-    const sym = mv("m_sym").trim().toUpperCase(), qty = mn("m_qty"), price = mn("m_price"), date = mv("m_date")||todayISO();
-    if(!sym) return "Symbol is missing.";
-    if(!(qty>=1)) return "Shares must be at least 1.";
-    if(!(price>0)) return "Cost per share must be above zero.";
-    const p = {id:uid(), sym, legs:[], shares:[], mark:null, carry:r2(mn("m_carry")||0), shut:false};
-    addShares(p, {side:"buy", date, qty, price, fees:0, via:"carry"});
+    const f = read();
+    if(!f.sym) return "Symbol is missing.";
+    if(!(f.qty>=1)) return "Shares must be at least 1.";
+    if(!(f.price>0)) return "Cost per share must be above zero.";
+    if(f.con<0 || Math.floor(f.con)!==f.con) return "Contracts must be a whole number.";
+    if(f.cr<0 || f.db<0 || f.of<0) return "Credit, debit and fees can't be negative.";
+    if(!f.con && (f.cr || f.db)) return "Enter how many contracts the credit and debit were for.";
+    const p = {id:uid(), sym:f.sym, legs:[], shares:[], mark:null, shut:false,
+               carry:f.net, carryIn:f.inStart, carryDate:f.date, carryParts:{con:f.con, cr:f.cr, db:f.db, of:f.of}};
+    addShares(p, {side:"buy", date:f.date, qty:f.qty, price:f.price, fees:0, via:"carry"});
     acct().positions.push(p);
     return null;
-  }, () => {
-    const qty = mn("m_qty"), price = mn("m_price"), carry = mn("m_carry")||0;
-    note(qty>0 && price>0 ? '<div class="flag mut">Basis ' + fmtP((qty*price - carry)/qty) + " on " + fmtQ(qty) + " shares.</div>" : "");
+  }, e => {
+    // Contracts follow the share count until you type one in.
+    if(e && e.target && e.target.id==="m_qty" && !$("m_con").dataset.touched) $("m_con").value = Math.max(0, Math.floor((mn("m_qty")||0)/100));
+    if(e && e.target && e.target.id==="m_con") $("m_con").dataset.touched = "1";
+    const f = read();
+    if(!(f.qty>0 && f.price>0)) return note("");
+    const adj = (f.qty*f.price - f.net)/f.qty;
+    note('<div class="flag mut">' + (f.con ? "Put: " + fmt$(f.cr*100*f.con) + " credit &minus; " + fmt$(f.db*100*f.con) + " buyback &minus; " + fmt$(f.of) +
+      ' fees = <b class="' + cls(f.net) + '">' + sgn$(f.net) + "</b>" + (f.inStart ? ", in the basis only." : ", in the basis and account P/L.") + " " : "") +
+      "Basis <b class=\"gold\">" + fmtP(adj) + "</b> on " + fmtQ(f.qty) + " shares" + (Math.abs(f.net)>EPS ? ", against " + fmtP(f.price) + " paid" : "") + ".</div>" +
+      (f.inStart ? '<div class="flag mut">Set the starting value to cash plus what these shares cost, so buying power comes out right.</div>' : ""));
   });
 };
 
@@ -1589,19 +1609,20 @@ function wire(){
     save(); render();
   });
 
-  $("np_exp").value = nextFriday(); $("np_date").value = todayISO();
+  $("np_date").value = todayISO(); setNpExp(nextFriday());
   autoFee("np_qty","np_fees");
   ["np_sym","np_strike","np_exp","np_qty","np_credit","np_fees","np_date","np_into"].forEach(id=>
     $(id).addEventListener("input", e=>{
       if(id==="np_fees") e.target.dataset.touched = "1";
       if(id==="np_qty") autoFee("np_qty","np_fees");
+      if(id==="np_date") setNpExp();
       $("np_ok").textContent = "";
       updateNP();
     }));
   $("np_go").addEventListener("click", recordNP);
   $("np_clear").addEventListener("click", ()=>{
     ["np_sym","np_strike","np_credit"].forEach(id=>$(id).value = "");
-    $("np_qty").value = 1; $("np_exp").value = nextFriday(); $("np_date").value = todayISO();
+    $("np_qty").value = 1; $("np_date").value = todayISO(); setNpExp(nextFriday());
     $("np_fees").dataset.touched = ""; autoFee("np_qty","np_fees");
     $("np_err").textContent = ""; $("np_ok").textContent = ""; updateNP();
   });
@@ -1610,6 +1631,11 @@ function wire(){
     const t = e.target;
     if(t.id==="m_fees" || t.id==="m_date") t.dataset.touched = "1";
     if(t.id==="m_qty") autoFee("m_qty","m_fees");
+    // Same rule as section 03: the expiry list follows the trade date.
+    if(t.id==="m_date" && $("m_exp") && $("m_exp").tagName==="SELECT"){
+      const from = t.value || todayISO(), list = fridays(EXP_N, from), v = $("m_exp").value;
+      $("m_exp").innerHTML = expOptions(list.indexOf(v)>=0 ? v : list[0], from);
+    }
     if(modalInput) modalInput(e);
   });
   $("modal").addEventListener("keydown", e=>{
