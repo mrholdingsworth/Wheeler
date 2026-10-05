@@ -74,6 +74,19 @@ Single self-contained `index.html`, house style from `../PROJECT-HANDOFF.md`. St
   Open questions it doesn't model: tick size (some chains only fill in $0.05 steps), holidays (only
   weekends are skipped), and whether mid-week redeployment at h is actually available. That last
   one is the assumption the remaining rule rests on.
+- **Max per symbol %** (2026-10-05, for diversification in larger accounts). Optional; blank means
+  no cap. The cap is `maxAlloc% × account value`. A symbol's exposure is its shares at cost plus
+  collateral on its open short puts, across every open position on that symbol. Calls add nothing.
+  - **Selector:** each symbol gets `room = cap − exposure`. A row whose single contract won't fit
+    shows "at cap". Rows on the same symbol share the room, so the optimizer is now a grouped
+    (multiple-choice) knapsack: each group holds the contract mixes that fit the symbol's room.
+    It was brute-force checked on 300 random lists with mixed caps. The result box names each
+    symbol the cap touched: shut out (already held, or a single contract over the cap) or held back.
+  - **Sell a Put and the position "Sell a put" form:** an amber flag, not a block.
+  - **Position cards:** a "% of acct" pill, amber when over the cap.
+
+  Steve's examples: 100 ABC at $50 against a 25% cap on $10k filters ABC out. At $10 a share, puts
+  up to $15 are eligible and not above.
 - **Collapse all / Expand all** on Open Positions. It's one button showing whichever action
   applies.
 - **A fixed "Capital to deploy" shrinks as you sell** from section 03, by the cash each sale used.

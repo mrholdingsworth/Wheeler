@@ -101,7 +101,7 @@ button.x:hover{color:var(--red);border-color:var(--red)}
 .fields>div>label{margin-top:auto}
 .fields.two{grid-template-columns:1fr 1fr}
 @media(min-width:1120px){
-  .fields.acctrow{grid-template-columns:150px 130px 160px}
+  .fields.acctrow{grid-template-columns:150px 130px 160px 140px}
   .fields.nprow{grid-template-columns:96px 104px 150px 88px 110px 100px 150px minmax(170px,1fr)}
 }
 
@@ -228,6 +228,7 @@ details[open] summary::before{content:"\25BE  "}
       <div><label for="s_start">Starting value</label><input id="s_start" type="number" step="0.01"></div>
       <div><label for="s_fee">Fees per contract</label><input id="s_fee" type="number" step="0.01" min="0"></div>
       <div><label for="s_hurdle">Target weekly return %</label><input id="s_hurdle" type="number" step="0.05" min="0"></div>
+      <div><label for="s_alloc">Max per symbol %</label><input id="s_alloc" type="number" step="1" min="0" max="100" placeholder="no cap"></div>
     </div>
     <div class="statrow" id="acctStats" style="margin-top:14px"></div>
     <details id="flowsBox">
@@ -245,7 +246,9 @@ details[open] summary::before{content:"\25BE  "}
       Account value is the starting value plus deposits and <b>closed</b> P/L, to the penny. Shares count at what you paid
       for them, not at market &mdash; put a last price on a position to see where it stands. Fees per contract fill in
       the fee boxes as a starting guess; the number you type is the number recorded. Target weekly return sets the
-      buy-back prices on open short options &mdash; it does not filter the put selector.
+      buy-back prices on open short options &mdash; it does not filter the put selector. Max per symbol caps any one
+      symbol &mdash; shares at cost plus open put collateral &mdash; as a share of account value: the selector keeps
+      within it, and a sale you enter yourself is flagged, not stopped.
     </div>
   </div>
 </div>
@@ -432,7 +435,7 @@ const nextN = () => (root.seq = (root.seq||0) + 1);
 
 function newAccount(name, start){
   return { id:uid(), name:name||"Wheeler", start: start==null ? 10000 : start,
-           fee:0.65, hurdle:1, capital:null, flows:[], positions:[], cands:[] };
+           fee:0.65, hurdle:1, maxAlloc:null, capital:null, flows:[], positions:[], cands:[] };
 }
 function newRoot(){
   const a = newAccount("Wheeler", 10000);
@@ -466,6 +469,7 @@ function normalize(){
     delete a.minWeekly;   // the per-put return floor was removed; nothing reads it
     ["name","start","fee","hurdle"].forEach(k=>{ if(a[k]==null) a[k] = d[k]; });
     if(a.capital===undefined) a.capital = null;
+    if(a.maxAlloc===undefined) a.maxAlloc = null;
     ["flows","positions","cands"].forEach(k=>{ if(!Array.isArray(a[k])) a[k] = []; });
     a.flows.forEach(f=>{ if(!f.id) f.id = uid(); maxN = Math.max(maxN, f.n||0); });
     a.positions.forEach(p=>{
@@ -784,7 +788,7 @@ function setVal(id, v){ const el = $(id); if(el && document.activeElement!==el) 
 function syncInputs(){
   const a = acct();
   setVal("s_start", a.start);
-  setVal("s_fee", a.fee); setVal("s_hurdle", a.hurdle);
+  setVal("s_fee", a.fee); setVal("s_hurdle", a.hurdle); setVal("s_alloc", a.maxAlloc==null ? "" : a.maxAlloc);
   setVal("sel_cap", a.capital==null ? "" : a.capital);
   if(document.activeElement!==$("np_exp")) setNpExp();
 }
@@ -831,12 +835,15 @@ const VBAR = '<span class="vbar">|</span>';
 
 /* ---------------- 02 · Put Selector ---------------- */
 function candCap(a, d){ return a.capital!=null ? a.capital : Math.max(0, d.bp); }
-function selRows(a, cap){
-  const today = todayISO();
+function selRows(a, cap, d){
+  const today = todayISO(), limit = symCap(a, d);
   return a.cands.map((c,i)=>{
     const strike = num(c.strike), credit = num(c.credit);
     const max = Math.max(1, Math.floor(num(c.max)||1));
-    const r = {i, c, strike, credit, max, exp:c.exp, ok:false, why:""};
+    // Rows with no symbol yet can't share a cap with anything, so each stands alone.
+    const key = c.sym ? c.sym : "\u0000row" + i;
+    const held = c.sym ? exposure(d, c.sym) : 0;
+    const r = {i, c, strike, credit, max, exp:c.exp, ok:false, why:"", key, held, room: Math.max(0, limit - held)};
     if(!(strike>0) || !(credit>0) || !c.exp){ r.why = "incomplete"; return r; }
     r.coll = strike*100; r.net = credit*100 - a.fee;
     r.days = daysBetween(today, c.exp);
@@ -847,6 +854,7 @@ function selRows(a, cap){
     if(r.days < 0) r.why = "expired";
     else if(r.net <= 0) r.why = "fees eat it";
     else if(r.coll - r.net > cap + 1e-9) r.why = "too big";
+    else if(r.coll > r.room + 1e-6) r.why = "at cap";
     else r.ok = true;
     return r;
   });
@@ -861,53 +869,104 @@ function selRows(a, cap){
 // a mix is never preferred for a higher percentage on a smaller slice of the account.
 const gcd = (x,y) => { while(y){ const t = y; y = x % y; x = t; } return x; };
 const DP_LIM = 400000;
-// 0/1 knapsack over binary-split parts; dp[c] = best value with weight ≤ c.
-function kpTable(wU, vals, maxes, W){
-  const parts = [];
-  wU.forEach((w,i)=>{
-    let k = 1, left = maxes[i];
-    while(left>0){ const t = Math.min(k,left); parts.push({i, cnt:t, w:w*t, v:vals[i]*t}); left -= t; k *= 2; }
-  });
-  const dp = new Float64Array(W+1), take = parts.map(()=>new Uint8Array(W+1));
-  parts.forEach((pt,j)=>{
-    const T = take[j];
-    for(let c=W; c>=pt.w; c--){
-      const nv = dp[c-pt.w] + pt.v;
-      if(nv > dp[c] + 1e-9){ dp[c] = nv; T[c] = 1; }
+// Grouped knapsack. Rows for the same symbol form one group, because a per-symbol allocation cap is
+// shared by every put on that symbol: the group's options are each mix of contracts across its rows
+// whose collateral fits the symbol's remaining room, and at most one option is taken per group.
+// With no cap, a single row's options are simply 1..max contracts — the same search as before.
+// dp[c] = best value with weight ≤ c.
+const GROUP_LIM = 5000;
+function groupOptions(items, idx, room){
+  const out = [], cnt = new Array(idx.length).fill(0);
+  let cut = false;
+  (function rec(k, coll){
+    if(out.length >= GROUP_LIM){ cut = true; return; }
+    if(k===idx.length){ if(cnt.some(Boolean)) out.push(cnt.slice()); return; }
+    const it = items[idx[k]];
+    for(let n=0; n<=it.max; n++){
+      if(coll + it.coll*n > room + 1e-6) break;
+      cnt[k] = n; rec(k+1, coll + it.coll*n);
     }
-  });
-  return {dp, take, parts};
+    cnt[k] = 0;
+  })(0, 0);
+  return {opts:out, cut};
 }
-function kpPick(t, c, n){
+function kpGroups(groups, W){
+  const dp = new Float64Array(W+1), choice = [];
+  groups.forEach(G=>{
+    const prev = dp.slice(), ch = new Uint16Array(W+1);
+    G.opts.forEach((o,j)=>{
+      for(let c=o.w; c<=W; c++){
+        const nv = prev[c-o.w] + o.v;
+        if(nv > dp[c] + 1e-9){ dp[c] = nv; ch[c] = j+1; }
+      }
+    });
+    choice.push(ch);
+  });
+  return {dp, choice};
+}
+function kpPickGroups(groups, t, c, n){
   const cnt = new Array(n).fill(0);
-  for(let j=t.parts.length-1; j>=0; j--) if(t.take[j][c]){ cnt[t.parts[j].i] += t.parts[j].cnt; c -= t.parts[j].w; }
+  for(let gi=groups.length-1; gi>=0; gi--){
+    const j = t.choice[gi][c];
+    if(!j) continue;
+    const o = groups[gi].opts[j-1];
+    o.cnt.forEach((k,x)=>{ cnt[groups[gi].idx[x]] += k; });
+    c -= o.w;
+  }
   return cnt;
 }
-// items: {coll, net, v, max}. With one expiry v is proportional to net, and the search is exact:
-// weight is collateral in the strikes' common step ($40/$50/$51 run in $100 units), dp holds the
-// most net credit at each collateral level, and the best level whose collateral less that credit
-// fits the capital wins. With mixed expiries, v (credit per week) and cash differ, so weight becomes
-// cash needed, in units coarsened when necessary and always rounded UP — it can then miss a mix by
-// a few cents of slack, but it can never ask for more than you have.
+// items: {coll, net, v, max, key, room}. With one expiry v is proportional to net, and the search is
+// exact: weight is collateral in the strikes' common step ($40/$50/$51 run in $100 units), dp holds
+// the most net credit at each collateral level, and the best level whose collateral less that
+// credit fits the capital wins. With mixed expiries, v (credit per week) and cash differ, so weight
+// becomes cash needed, in units coarsened when necessary and always rounded UP — it can then miss a
+// mix by a few cents of slack, but it can never ask for more than you have.
 function knapsack(items, cap, oneExp){
   const n = items.length, capC = Math.round(cap*100);
+  const keys = {}; items.forEach((it,i)=>{ (keys[it.key] = keys[it.key] || []).push(i); });
+  let approx = false;
+  const base = Object.keys(keys).map(k=>{
+    const idx = keys[k], go = groupOptions(items, idx, items[idx[0]].room);
+    if(go.cut) approx = true;
+    return {idx, raw:go.opts};
+  }).filter(G=>G.raw.length);
+  const build = (wOf, vOf) => base.map(G=>({idx:G.idx, opts:G.raw.map(cnt=>({cnt,
+    w: cnt.reduce((s,k,x)=>s + wOf(G.idx[x])*k, 0), v: cnt.reduce((s,k,x)=>s + vOf(G.idx[x])*k, 0)}))}));
   if(oneExp){
     const cents = items.map(it=>Math.round(it.coll*100));
     const g = cents.reduce(gcd, 0) || 1;
     const top = capC + Math.round(items.reduce((s,it)=>s + Math.max(0,it.net)*it.max, 0)*100);
     const W = Math.floor(top/g);
     if(W <= DP_LIM){
-      const t = kpTable(cents.map(c=>c/g), items.map(it=>it.net), items.map(it=>it.max), W);
+      const groups = build(i=>cents[i]/g, i=>items[i].net), t = kpGroups(groups, W);
       let best = 0, at = 0;
       for(let c=0; c<=W; c++) if(c*g - t.dp[c]*100 <= capC + 1e-6 && t.dp[c] > best + 1e-9){ best = t.dp[c]; at = c; }
-      return {cnt:kpPick(t, at, n), approx:false};
+      return {cnt:kpPickGroups(groups, t, at, n), approx};
     }
   }
   const need = items.map(it=>Math.round((it.coll - it.net)*100));
-  let unit = Math.max(1, need.reduce(gcd, 0)), W = Math.floor(capC/unit), approx = false;
+  let unit = Math.max(1, need.reduce(gcd, 0)), W = Math.floor(capC/unit);
   if(W > DP_LIM){ unit *= Math.ceil(W/DP_LIM); W = Math.floor(capC/unit); approx = true; }
-  const t = kpTable(need.map(c=>Math.max(1, Math.ceil(c/unit))), items.map(it=>it.v), items.map(it=>it.max), W);
-  return {cnt:kpPick(t, W, n), approx};
+  const groups = build(i=>Math.max(1, Math.ceil(need[i]/unit)), i=>items[i].v), t = kpGroups(groups, W);
+  return {cnt:kpPickGroups(groups, t, W, n), approx};
+}
+
+// How much of the account a symbol already uses: shares at cost plus collateral on its open short
+// puts. Cost, not market, so the cap measures what you put in. Calls add nothing — they sell
+// against shares already counted.
+function exposure(d, sym){
+  return d.open.filter(x=>x.p.sym===sym).reduce((s,x)=>s + x.d.cost + x.d.coll, 0);
+}
+// The most a symbol may hold under the cap, or Infinity with no cap set.
+const symCap = (a, d) => a.maxAlloc>0 ? a.maxAlloc/100 * d.value : Infinity;
+// A warning, not a veto: the selector enforces the cap, but a sale you type in yourself is yours.
+function capFlag(a, d, sym, add){
+  const limit = symCap(a, d);
+  if(!isFinite(limit) || !sym) return "";
+  const held = exposure(d, sym), after = held + add;
+  if(after <= limit + EPS) return "";
+  return '<div class="flag amber">Takes ' + esc(sym) + " to " + fmt$(after) + ", " + pct(after/d.value,0) + " of the account &mdash; over your " +
+    a.maxAlloc + "% cap of " + fmt$(limit) + (held>EPS ? " (" + fmt$(held) + " already in it)" : "") + ". Recorded if you go ahead.</div>";
 }
 
 // Always exactly EXP_N choices. A saved expiry that has fallen off the front of the list — last
@@ -972,10 +1031,35 @@ function selCompute(){
     ? "Blank uses all free buying power, " + fmt$(bp) + "."
     : (a.capital > bp + EPS ? '<span style="color:var(--amber)">More than the ' + fmt$(bp) + ' free &mdash; flagged, not stopped.</span>'
                             : "Holding back " + fmt$(bp - a.capital) + " of " + fmt$(bp) + " free.");
-  const rows = selRows(a, cap);
+  const rows = selRows(a, cap, d), limit = symCap(a, d);
   const elig = rows.filter(r=>r.ok);
   const oneExpAll = elig.every(r=>r.exp===(elig[0]||{}).exp);
-  const k = elig.length ? knapsack(elig.map(r=>({coll:r.coll, net:r.net, v:r.val, max:r.max})), cap, oneExpAll) : {cnt:[], approx:false};
+  const k = elig.length ? knapsack(elig.map(r=>({coll:r.coll, net:r.net, v:r.val, max:r.max, key:r.key, room:r.room})), cap, oneExpAll) : {cnt:[], approx:false};
+  // Name every symbol the cap touched, and how: shut out entirely, or held below the contracts asked for.
+  let capNote = "";
+  if(isFinite(limit)){
+    const bits = [], bySym = {};
+    rows.forEach(r=>{ if(r.c.sym && r.why!=="incomplete") (bySym[r.c.sym] = bySym[r.c.sym] || []).push(r); });
+    Object.keys(bySym).forEach(sym=>{
+      const rs = bySym[sym], r0 = rs[0], ok = rs.filter(r=>r.ok);
+      // Shut out: no row on this symbol fits even one contract. Say whether that's what is already
+      // held or the contract itself being bigger than the cap.
+      if(!ok.length && rs.some(r=>r.why==="at cap")){
+        const smallest = Math.min.apply(null, rs.filter(r=>r.why==="at cap").map(r=>r.coll));
+        bits.push(esc(sym) + " is out &mdash; " + (r0.held>EPS
+          ? fmt$(r0.held) + " already in it, " + pct(d.value>0 ? r0.held/d.value : null,0) + " of the account"
+          : "one contract is " + fmt$(smallest) + ", over the cap on its own"));
+        return;
+      }
+      // Held back: everything asked for on this symbol would not fit in its room together.
+      const asked = ok.reduce((s,r)=>s + r.coll*r.max, 0);
+      if(ok.length && asked > r0.room + 1e-6)
+        bits.push(esc(sym) + " held to " + fmt$(r0.room) + " more" + (r0.held>EPS ? " on top of " + fmt$(r0.held) + " held" : "") +
+          " &mdash; " + fmt$(asked) + " was asked for");
+    });
+    capNote = '<div class="calsub calrule">Cap per symbol: <b>' + fmt$(limit) + "</b>, " + a.maxAlloc + "% of the account." +
+      (bits.length ? " " + bits.join("; ") + "." : " No row came near it.") + "</div>";
+  }
   const take = {};
   elig.forEach((r,j)=>{ if(k.cnt[j]) take[r.i] = k.cnt[j]; });
 
@@ -987,7 +1071,9 @@ function selCompute(){
     set("cc_ann_",  r.ann!=null ? pct(r.ann,1) : "");
     set("cc_st_",   take[r.i] ? '<span class="pill good">take '+take[r.i]+'</span>'
                   : r.ok ? '<span class="pill plain">pass</span>'
-                  : r.why==="incomplete" ? "" : '<span class="pill warn">'+esc(r.why)+'</span>');
+                  : r.why==="incomplete" ? ""
+                  : '<span class="pill warn"' + (r.why==="at cap" ? ' title="' + fmt$(r.held) + ' already in ' + esc(r.c.sym) + '; ' +
+                      fmt$(r.room) + ' of room under the cap, ' + fmt$(r.coll) + ' needed"' : "") + '>'+esc(r.why)+'</span>');
   });
 
   const picks = elig.map(r=>({r, n:take[r.i]||0})).filter(x=>x.n>0);
@@ -1000,7 +1086,7 @@ function selCompute(){
     out.innerHTML = '<div class="calbox"><div class="calans" style="color:var(--amber)">Nothing to sell</div><div class="calsub">' +
       (cap < 100 ? "There is no capital to put up &mdash; " + fmt$(cap) + " free."
        : why.length ? "Every complete row is out: " + why.map(r=>esc(r.c.sym||"?")+" "+esc(r.why)).join(", ") + "."
-       : "Fill in strike, credit and expiry on at least one row.") + '</div></div>';
+       : "Fill in strike, credit and expiry on at least one row.") + '</div>' + capNote + '</div>';
     return;
   }
   let used = 0, gross = 0, fees = 0, val = 0;
@@ -1009,7 +1095,7 @@ function selCompute(){
   const exps = {}; picks.forEach(x=>exps[x.r.exp] = 1);
   const oneExp = Object.keys(exps).length===1;
   // The strongest single contract, to say what the mix is worth over the obvious choice.
-  const best = elig.filter(r=>r.coll - r.net <= cap + 1e-9).sort((x,y)=>y.val-x.val)[0];
+  const best = elig.filter(r=>r.coll - r.net <= cap + 1e-9 && r.coll <= r.room + 1e-6).sort((x,y)=>y.val-x.val)[0];
   let vs = "";
   if(best && !(picks.length===1 && picks[0].n===1)){
     const allSame = elig.every(r=>r.exp===best.exp) && oneExp;
@@ -1039,7 +1125,7 @@ function selCompute(){
     '<div class="calsub calrule">Leaves ' + fmt$(left) + (nextMax >= 1 ? " &mdash; room for one more put up to " + fmtP(nextMax) + " strike plus its credit." : ".") +
     (oneExp ? "" : " Expiries differ, so the picks are ranked on credit per week.") +
     (k.approx ? " Capital is large next to the strike steps, so collateral was rounded up to a coarser unit; the mix may leave a little on the table." : "") +
-    "</div></div>";
+    "</div>" + capNote + "</div>";
 }
 window.pickToForm = i => {
   const x = lastPicks[i]; if(!x) return;
@@ -1095,6 +1181,7 @@ function updateNP(){
   }
   h += '<div class="calsub calrule">Buying power ' + fmt$(d.bp) + " &rarr; " + fmt$(d.bp - coll + net) + " once sold, the credit counted toward collateral.</div></div>";
   if(coll - net > d.bp + EPS) h += '<div class="flag red">Even with the credit, that is ' + fmt$(coll - net - d.bp) + " more collateral than you have free. Your call &mdash; nothing here stops you.</div>";
+  h += capFlag(a, d, f.sym, coll);
   if(days < 0) h += '<div class="flag red">Expiry is before the sale date.</div>';
   else if(!isFriday(f.exp)) h += '<div class="flag mut">Expiry isn\'t a Friday &mdash; fine for a holiday week, worth a second look otherwise.</div>';
   box.innerHTML = h;
@@ -1216,10 +1303,14 @@ function historyTable(p, d, canUndo){
       '</td><td></td><td class="num">'+(p.carryParts && p.carryParts.of ? fmt$(p.carryParts.of) : "")+'</td><td></td><td class="num '+cls(p.carry)+'">'+sgn$(p.carry)+'</td><td></td></tr>' : "") +
     "</table>";
 }
-function posCard(p, d){
-  const today = todayISO();
+function posCard(p, d, A){
+  const today = todayISO(), a = acct();
+  // Share of the account the symbol takes, on the same measure the cap uses. Amber once it's over.
+  const held = exposure(A, p.sym), share = A.value>0 ? held/A.value : null, limit = symCap(a, A);
+  const alloc = share==null || held<=EPS ? "" : '<span class="pill ' + (held > limit + EPS ? "warn" : "plain") + '" title="' +
+    fmt$(held) + " in " + esc(p.sym) + " at cost" + (isFinite(limit) ? ", cap " + fmt$(limit) : "") + '">' + pct(share,0) + " of acct</span> ";
   const head = '<div class="poshead"><button class="small" onclick="togglePos('+q(p.id)+')">'+(p.shut?"&#9656;":"&#9662;")+'</button>' +
-    '<span class="tk">'+esc(p.sym)+'</span> ' + statusPills(d) +
+    '<span class="tk">'+esc(p.sym)+'</span> ' + statusPills(d) + " " + alloc +
     '<span class="muted">since '+fmtD(d.first)+VBAR+plural(d.days,"day")+'</span>' +
     (p.shut ? '<span class="muted" style="margin-left:auto">' + (d.adj!=null ? "basis " + fmtP(d.adj) + VBAR : "") + "banked " + sgn$(d.total) + "</span>" : "") +
     '<button class="small danger" style="'+(p.shut?"":"margin-left:auto")+'" title="Delete this position and all its events" onclick="delPos('+q(p.id)+')">&#10005;</button></div>';
@@ -1306,7 +1397,7 @@ function renderOpen(){
     ? '<button class="small" onclick="setAllPos(' + (anyOpen ? "true" : "false") + ')">' + (anyOpen ? "Collapse all" : "Expand all") + '</button>'
     : "";
   $("body_open").innerHTML = list.length
-    ? list.map(x=>posCard(x.p, x.d)).join("")
+    ? list.map(x=>posCard(x.p, x.d, d)).join("")
     : '<div class="card muted">Nothing open. Sell a put in section 03 and it appears here.</div>';
 }
 window.togglePos = pid => { const p = findPos(pid); p.shut = !p.shut; save(); renderOpen(); };
@@ -1431,6 +1522,7 @@ window.posAction = (pid, kind) => {
       const ad = acct(), dd = deriveAcct(ad), coll = f.strike*100*f.qty, net = f.price*100*f.qty - f.fees;
       h += '<div class="flag mut">' + fmt$(coll) + " collateral less " + fmt$(net) + " credit; buying power " + fmt$(dd.bp) + " &rarr; " + fmt$(dd.bp - coll + net) + ".</div>";
       if(coll - net > dd.bp + EPS) h += '<div class="flag red">Even with the credit, that is ' + fmt$(coll - net - dd.bp) + " more than you have free. Your call.</div>";
+      h += capFlag(ad, dd, p.sym, coll);
     } else if(kind==="buysh"){
       h += '<div class="flag mut">' + fmtQ(s.sh) + " shares, avg cost " + fmtP(s.avg) + ", basis <b class=\"gold\">" + fmtP(s.adj) + "</b>" + (d.adj!=null ? " (from " + fmtP(d.adj) + ")" : "") + ".</div>";
     } else if(kind==="sellsh"){
@@ -1562,7 +1654,7 @@ window.addAcct = () => {
     if(Object.values(root.accounts).some(x=>x.name.toLowerCase()===name.toLowerCase())) return "There is already an account called " + name + ".";
     if(!(start>=0)) return "Starting value is missing.";
     const a = newAccount(name, r2(start)), cur = acct();
-    a.fee = cur.fee; a.hurdle = cur.hurdle;
+    a.fee = cur.fee; a.hurdle = cur.hurdle; a.maxAlloc = cur.maxAlloc;
     root.accounts[a.id] = a; root.order.push(a.id); root.active = a.id;
     return null;
   });
@@ -1711,6 +1803,8 @@ function wire(){
   setA("s_start",     (a,v)=>{ if(num(v)!=null) a.start = r2(num(v)); });
   setA("s_fee",       (a,v)=>{ if(num(v)>=0) a.fee = num(v); });
   setA("s_hurdle",    (a,v)=>{ if(num(v)>=0) a.hurdle = num(v); });
+  // Blank or zero means no cap; anything over 100 is no cap either, so store it as none.
+  setA("s_alloc",     (a,v)=>{ const n = num(v); a.maxAlloc = n>0 && n<100 ? n : null; });
   $("sel_cap").addEventListener("input", e=>{ const v = num(e.target.value); acct().capital = v>=0 ? v : null; save(); selCompute(); });
 
   $("f_date").value = todayISO();
