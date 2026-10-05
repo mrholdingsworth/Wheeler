@@ -101,7 +101,7 @@ button.x:hover{color:var(--red);border-color:var(--red)}
 .fields>div>label{margin-top:auto}
 .fields.two{grid-template-columns:1fr 1fr}
 @media(min-width:1120px){
-  .fields.acctrow{grid-template-columns:150px 130px}
+  .fields.acctrow{grid-template-columns:150px 130px 160px}
   .fields.nprow{grid-template-columns:96px 104px 150px 88px 110px 100px 150px minmax(170px,1fr)}
 }
 
@@ -227,6 +227,7 @@ details[open] summary::before{content:"\25BE  "}
     <div class="fields acctrow">
       <div><label for="s_start">Starting value</label><input id="s_start" type="number" step="0.01"></div>
       <div><label for="s_fee">Fees per contract</label><input id="s_fee" type="number" step="0.01" min="0"></div>
+      <div><label for="s_hurdle">Target weekly return %</label><input id="s_hurdle" type="number" step="0.05" min="0"></div>
     </div>
     <div class="statrow" id="acctStats" style="margin-top:14px"></div>
     <details id="flowsBox">
@@ -243,7 +244,8 @@ details[open] summary::before{content:"\25BE  "}
     <div class="hint">
       Account value is the starting value plus deposits and <b>closed</b> P/L, to the penny. Shares count at what you paid
       for them, not at market &mdash; put a last price on a position to see where it stands. Fees per contract fill in
-      the fee boxes as a starting guess; the number you type is the number recorded.
+      the fee boxes as a starting guess; the number you type is the number recorded. Target weekly return sets the
+      buy-back prices on open short options &mdash; it does not filter the put selector.
     </div>
   </div>
 </div>
@@ -430,7 +432,7 @@ const nextN = () => (root.seq = (root.seq||0) + 1);
 
 function newAccount(name, start){
   return { id:uid(), name:name||"Wheeler", start: start==null ? 10000 : start,
-           fee:0.65, capital:null, flows:[], positions:[], cands:[] };
+           fee:0.65, hurdle:1, capital:null, flows:[], positions:[], cands:[] };
 }
 function newRoot(){
   const a = newAccount("Wheeler", 10000);
@@ -462,7 +464,7 @@ function normalize(){
     const a = root.accounts[id];
     a.id = id;
     delete a.minWeekly;   // the per-put return floor was removed; nothing reads it
-    ["name","start","fee"].forEach(k=>{ if(a[k]==null) a[k] = d[k]; });
+    ["name","start","fee","hurdle"].forEach(k=>{ if(a[k]==null) a[k] = d[k]; });
     if(a.capital===undefined) a.capital = null;
     ["flows","positions","cands"].forEach(k=>{ if(!Array.isArray(a[k])) a[k] = []; });
     a.flows.forEach(f=>{ if(!f.id) f.id = uid(); maxN = Math.max(maxN, f.n||0); });
@@ -782,7 +784,7 @@ function setVal(id, v){ const el = $(id); if(el && document.activeElement!==el) 
 function syncInputs(){
   const a = acct();
   setVal("s_start", a.start);
-  setVal("s_fee", a.fee);
+  setVal("s_fee", a.fee); setVal("s_hurdle", a.hurdle);
   setVal("sel_cap", a.capital==null ? "" : a.capital);
   if(document.activeElement!==$("np_exp")) setNpExp();
 }
@@ -1121,6 +1123,74 @@ function recordNP(){
 }
 
 /* ---------------- 04 · Open Positions ---------------- */
+/* ---- buy-to-close targets ----
+   When should a short option be bought back early? Measured in trading sessions, since that is how
+   the week is counted: a put sold Monday for Friday has 5. With
+     C  credit per share       K  capital per share it ties up (strike for a put, basis for a call)
+     h  target return a week    T  sessions from sale through expiry    t  sessions already past
+   the buy-back price B must pass two tests:
+     remaining:  B ≤ h·K·(T−t)/5 − 2·fee   The premium still to come, per session, has fallen below
+                                          the target rate, so the cash earns more closed and sold
+                                          again. Fees count the close and the reopen.
+     floor:      B ≤ C − fees − h·K·t′/5   Closing still banks the target rate for the sessions held
+                                          (t′ = at least one, so a same-day close isn't free).
+   The target is the lower of the two. When the credit pays more than h held to expiry, the
+   remaining test always binds, and it always demands more captured than time spent: (1 − h/ρ)
+   ahead of the straight line, where ρ is the trade's own weekly rate. When the credit pays less
+   than h, the floor binds instead. If neither leaves a price above zero, holding to expiry is the
+   better use of the capital. */
+function tradingDays(a, b){            // weekdays in [a, b)
+  let n = 0;
+  for(let x = dnum(a), e = dnum(b); x < e; x++){ const w = new Date(x*864e5).getUTCDay(); if(w!==0 && w!==6) n++; }
+  return n;
+}
+function closeTarget(a, d, L, on){
+  const h = (a.hurdle||0)/100, sh = 100*L.qty, fee = (a.fee||0)/100;
+  const T = tradingDays(L.open.date, L.exp) + 1;
+  const t = Math.min(T, tradingDays(L.open.date, on < L.open.date ? L.open.date : on));
+  const left = T - t;
+  const K = L.type==="put" ? L.strike : (d.adj>0 ? d.adj : d.avg>0 ? d.avg : L.strike);
+  const C = L.open.price, ofee = L.open.fees/sh;
+  const rho = (C - ofee - fee)/K * 5/T;                     // the trade's own weekly rate, held to expiry
+  const rem = h*K*left/5 - 2*fee;
+  const flo = C - ofee - fee - h*K*Math.max(t,1)/5;
+  const raw = Math.min(rem, flo);
+  const price = Math.floor(raw*100 + 1e-7)/100;              // a buy limit rounds down, never up
+  const hold = left<=0 || h<=0 || price < 0.01;
+  return { price, hold, rule: rem<=flo ? "remaining" : "floor", t, T, left, K, C, rho, h,
+           captured: hold ? null : (C - price)/C, elapsed: t/T };
+}
+// Today's target and the rest of the week's, one per remaining session.
+function closePlan(a, d, L){
+  const today = todayISO(), out = [];
+  for(let x = dnum(today), e = dnum(L.exp); x <= e; x++){
+    const s = iso(x), w = new Date(x*864e5).getUTCDay();
+    if(w===0 || w===6) continue;
+    out.push({date:s, ...closeTarget(a, d, L, s)});
+  }
+  return out;
+}
+function closeNote(a, d, L){
+  const plan = closePlan(a, d, L);
+  if(!plan.length) return "";
+  const c = plan[0], head = fmtP(L.strike) + " " + L.type;
+  const wd = s => new Date(dnum(s)*864e5).toLocaleDateString(undefined,{weekday:"short",timeZone:"UTC"});
+  const sched = plan.length > 1 ? ' <span class="muted">' + plan.map(x=>wd(x.date) + " " + (x.hold ? "hold" : fmtP(x.price))).join(" &middot; ") +
+    " &mdash; lower the order each morning.</span>" : "";
+  if(c.hold){
+    const why = c.h<=0 ? "set a target weekly return in section 01 to get one"
+      : c.left<=0 ? "it expires today"
+      : "no price from here banks " + pct(c.h,2) + " a week for the sessions held &mdash; holding to expiry is the better use of the cash";
+    return '<div class="sub2">' + head + ": <b>hold</b> &mdash; " + why + "." + sched + "</div>";
+  }
+  const ahead = Math.round(c.captured*100) + "% of the " + fmtP(c.C) + " credit with " + Math.round(c.elapsed*100) + "% of the " + plural(c.T,"session") + " gone";
+  const why = c.rule==="remaining"
+    ? "At that price, the premium still to come earns less than your " + pct(c.h,2) + " a week on the " + fmt$(c.K*100*L.qty) +
+      (L.type==="put" ? " it ties up" : " of shares it covers, at basis") + ", so closing and selling again pays better."
+    : "Held to expiry this credit pays " + pct(c.rho,2) + " a week, under your " + pct(c.h,2) + ", so the target is the price that still banks " + pct(c.h,2) + " a week for the sessions held.";
+  return '<div class="sub2">' + head + ": buy back at <b>" + fmtP(c.price) + "</b> or less today &mdash; " + ahead + ". " + why + sched + "</div>";
+}
+
 function statusPills(d){
   const out = [];
   if(d.sh) out.push('<span class="pill info">' + fmtQ(d.sh) + " sh</span>");
@@ -1196,16 +1266,21 @@ function posCard(p, d){
 
   if(d.openLegs.length){
     h += '<div class="scroll" style="margin-top:12px"><table><tr><th>Open leg</th><th class="num">Strike</th><th>Expiry</th><th class="num">Qty</th>' +
-      '<th class="num">Opened at</th><th class="num">Premium</th><th class="num">Ties up</th><th></th></tr>' +
+      '<th class="num">Opened at</th><th class="num">Premium</th><th class="num">Ties up</th>' +
+      '<th class="num" title="Buy-to-close limit for today">Close at</th><th></th></tr>' +
       d.openLegs.slice().sort((x,y)=>x.exp<y.exp?-1:x.exp>y.exp?1:0).map(L=>{
         const dte = daysBetween(today, L.exp), m = 100*L.qty;
         const prem = L.side==="short" ? L.open.price*m - L.open.fees : -(L.open.price*m + L.open.fees);
+        const tg = L.side==="short" && dte>=0 ? closeTarget(acct(), d, L, today) : null;
         return '<tr><td class="nw">'+legKind(L)+'</td><td class="num">'+fmtP(L.strike)+'</td><td class="nw">'+fmtD(L.exp)+
           ' <span class="'+(dte<0?"neg":"muted")+'">'+(dte<0 ? "expired, not closed" : dte===0 ? "today" : dte+"d")+'</span></td>' +
           '<td class="num">'+L.qty+'</td><td class="num">'+fmtP(L.open.price)+'</td><td class="num '+cls(prem)+'">'+sgn$(prem)+'</td>' +
           '<td class="num">'+(L.side==="short" && L.type==="put" ? fmt$(L.strike*m) : L.side==="short" ? fmtQ(m)+" sh" : "")+'</td>' +
+          '<td class="num">'+(!tg ? "" : tg.hold ? '<span class="muted">hold</span>' : '<b class="gold">'+fmtP(tg.price)+'</b>')+'</td>' +
           '<td class="num"><button class="small'+(dte<=0?" warn":"")+'" onclick="closeUI('+q(p.id)+','+q(L.id)+')">Close</button></td></tr>';
       }).join("") + "</table></div>";
+    h += d.openLegs.filter(L=>L.side==="short" && daysBetween(today, L.exp)>=0)
+          .sort((x,y)=>x.exp<y.exp?-1:x.exp>y.exp?1:0).map(L=>closeNote(acct(), d, L)).join("");
   }
 
   h += '<div class="acts">' +
@@ -1487,7 +1562,7 @@ window.addAcct = () => {
     if(Object.values(root.accounts).some(x=>x.name.toLowerCase()===name.toLowerCase())) return "There is already an account called " + name + ".";
     if(!(start>=0)) return "Starting value is missing.";
     const a = newAccount(name, r2(start)), cur = acct();
-    a.fee = cur.fee;
+    a.fee = cur.fee; a.hurdle = cur.hurdle;
     root.accounts[a.id] = a; root.order.push(a.id); root.active = a.id;
     return null;
   });
@@ -1635,6 +1710,7 @@ function wire(){
   const setA = (id, fn) => $(id).addEventListener("change", e=>{ fn(acct(), e.target.value); save(); render(); });
   setA("s_start",     (a,v)=>{ if(num(v)!=null) a.start = r2(num(v)); });
   setA("s_fee",       (a,v)=>{ if(num(v)>=0) a.fee = num(v); });
+  setA("s_hurdle",    (a,v)=>{ if(num(v)>=0) a.hurdle = num(v); });
   $("sel_cap").addEventListener("input", e=>{ const v = num(e.target.value); acct().capital = v>=0 ? v : null; save(); selCompute(); });
 
   $("f_date").value = todayISO();

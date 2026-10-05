@@ -57,6 +57,23 @@ Single self-contained `index.html`, house style from `../PROJECT-HANDOFF.md`. St
   put would have put to work. The goal is total account gain, so every put competes on the dollars
   it adds. Rows are excluded only for: expired, fees ≥ credit, too big. They're checked in that
   order, so "too big" is never hidden behind a yield label.
+- **Buy-to-close targets** (2026-10-05). Every open short option shows a "Close at" limit for today
+  and a schedule for each session to expiry. Time is counted in trading sessions (a Mon→Fri put has
+  5). With h = target weekly return (an account setting, default 1%; it does *not* filter the
+  selector) and K = strike for a put or adjusted basis for a call, the target is the lower of:
+  - remaining: `h·K·(T−t)/5 − 2·fee`. The premium still to come earns under h, so redeploying wins.
+    Fees count the close and the reopen.
+  - floor: `C − fees − h·K·max(t,1)/5`. Closing still banks h for the sessions held.
+
+  The result is rounded down to the cent. "Hold" when neither leaves a positive price, or h is 0.
+  For credits paying more than h, the remaining rule binds and always sits (1 − h/ρ) ahead of the
+  straight-line pace. For credits paying less than h, the floor binds. Hand-checked: a $50 put at
+  $0.60 gives $0.48 / .38 / .28 / .18 / .08 Mon→Fri, and at $0.40 gives .28 / .28 / .18 / .08 /
+  hold.
+
+  Open questions it doesn't model: tick size (some chains only fill in $0.05 steps), holidays (only
+  weekends are skipped), and whether mid-week redeployment at h is actually available. That last
+  one is the assumption the remaining rule rests on.
 - **Collapse all / Expand all** on Open Positions. It's one button showing whichever action
   applies.
 - **A fixed "Capital to deploy" shrinks as you sell** from section 03, by the cash each sale used.
