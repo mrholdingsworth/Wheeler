@@ -101,7 +101,7 @@ button.x:hover{color:var(--red);border-color:var(--red)}
 .fields>div>label{margin-top:auto}
 .fields.two{grid-template-columns:1fr 1fr}
 @media(min-width:1120px){
-  .fields.acctrow{grid-template-columns:150px 130px 150px}
+  .fields.acctrow{grid-template-columns:150px 130px}
   .fields.nprow{grid-template-columns:96px 104px 150px 88px 110px 100px 150px minmax(170px,1fr)}
 }
 
@@ -227,7 +227,6 @@ details[open] summary::before{content:"\25BE  "}
     <div class="fields acctrow">
       <div><label for="s_start">Starting value</label><input id="s_start" type="number" step="0.01"></div>
       <div><label for="s_fee">Fees per contract</label><input id="s_fee" type="number" step="0.01" min="0"></div>
-      <div><label for="s_min">Min weekly return %</label><input id="s_min" type="number" step="0.05" min="0"></div>
     </div>
     <div class="statrow" id="acctStats" style="margin-top:14px"></div>
     <details id="flowsBox">
@@ -268,9 +267,10 @@ details[open] summary::before{content:"\25BE  "}
     </div>
     <div id="selOut"></div>
     <div class="hint">
-      Picks the mix of contracts with the most net credit that fits the capital, fees taken out per contract. Puts that
-      miss your weekly minimum are left out. When expiries differ, each credit is scaled to a week so a two-week put
-      has to earn twice as much to compete &mdash; with one expiry it is simply the largest total credit.
+      Picks the mix of contracts with the most net credit that fits the capital, fees taken out per contract &mdash; the
+      biggest gain for the account as a whole. No put is ruled out for a low return on its own: if it fills cash that
+      would otherwise sit idle, it adds to the total. When expiries differ, each credit is scaled to a week so a
+      two-week put has to earn twice as much to compete &mdash; with one expiry it is simply the largest total credit.
     </div>
   </div>
 </div>
@@ -309,6 +309,7 @@ details[open] summary::before{content:"\25BE  "}
     <button class="small" id="tg_open" onclick="toggleSection('open')">&#9662;</button>
     <div class="head" style="margin-bottom:0">04 &middot; Open Positions</div>
     <span class="muted" style="margin-left:auto" id="openSummary"></span>
+    <span id="openAll"></span>
   </div>
 </div>
 <div id="body_open"></div>
@@ -429,7 +430,7 @@ const nextN = () => (root.seq = (root.seq||0) + 1);
 
 function newAccount(name, start){
   return { id:uid(), name:name||"Wheeler", start: start==null ? 10000 : start,
-           fee:0.65, minWeekly:0.5, capital:null, flows:[], positions:[], cands:[] };
+           fee:0.65, capital:null, flows:[], positions:[], cands:[] };
 }
 function newRoot(){
   const a = newAccount("Wheeler", 10000);
@@ -460,7 +461,8 @@ function normalize(){
   Object.keys(root.accounts).forEach(id=>{
     const a = root.accounts[id];
     a.id = id;
-    ["name","start","fee","minWeekly"].forEach(k=>{ if(a[k]==null) a[k] = d[k]; });
+    delete a.minWeekly;   // the per-put return floor was removed; nothing reads it
+    ["name","start","fee"].forEach(k=>{ if(a[k]==null) a[k] = d[k]; });
     if(a.capital===undefined) a.capital = null;
     ["flows","positions","cands"].forEach(k=>{ if(!Array.isArray(a[k])) a[k] = []; });
     a.flows.forEach(f=>{ if(!f.id) f.id = uid(); maxN = Math.max(maxN, f.n||0); });
@@ -780,7 +782,7 @@ function setVal(id, v){ const el = $(id); if(el && document.activeElement!==el) 
 function syncInputs(){
   const a = acct();
   setVal("s_start", a.start);
-  setVal("s_fee", a.fee); setVal("s_min", a.minWeekly);
+  setVal("s_fee", a.fee);
   setVal("sel_cap", a.capital==null ? "" : a.capital);
   if(document.activeElement!==$("np_exp")) setNpExp();
 }
@@ -838,9 +840,10 @@ function selRows(a, cap){
     r.days = daysBetween(today, c.exp);
     r.roc = r.net / r.coll; r.wk = weekly(r.roc, r.days); r.ann = annual(r.roc, r.days);
     r.val = r.net * 7 / Math.max(WEEK_FLOOR, r.days);    // net credit per week-equivalent
+    // No per-put return floor. The goal is the most total credit on the account, and a low-yield put
+    // that fills idle capital still adds to it; a floor would leave that cash earning nothing.
     if(r.days < 0) r.why = "expired";
     else if(r.net <= 0) r.why = "fees eat it";
-    else if(r.wk*100 < a.minWeekly - 1e-9) r.why = "below " + a.minWeekly + "%";
     else if(r.coll - r.net > cap + 1e-9) r.why = "too big";
     else r.ok = true;
     return r;
@@ -1020,10 +1023,12 @@ function selCompute(){
   }).join("");
   // Returns are stated on the whole capital figure, because that is what is being maximized: an idle
   // dollar earns nothing and has to count against the week.
-  const wkCap = oneExp ? weekly(net/cap, picks[0].r.days) : val/cap;
+  const wkOn = base => base>0 ? (oneExp ? weekly(net/base, picks[0].r.days) : val/base) : null;
+  const wkAcct = wkOn(d.value), wkCap = wkOn(cap);
   const nextMax = Math.floor((left - a.fee)/100*100)/100;
   out.innerHTML = '<div class="calbox"><div class="calans">Sell ' + plural(picks.reduce((s,x)=>s+x.n,0),"contract") + " for " + fmt$(net) + " net</div>" +
-    '<div class="calsub"><b>' + pct(wkCap) + "</b> a week on all " + fmt$(cap) + " of capital" + VBAR + "<b>" + pct(wkCap*365/7,1) + "</b> annualized, simple. " +
+    '<div class="calsub"><b>' + pct(wkAcct) + "</b> a week on the " + fmt$(d.value) + " account" + VBAR + "<b>" + pct(wkAcct*365/7,1) + "</b> annualized, simple." +
+    (Math.abs(cap - d.value) > EPS ? " On the " + fmt$(cap) + " put to work: " + pct(wkCap) + " a week." : "") + " " +
     fmt$(gross) + " credit less " + fmt$(fees) + " fees.</div>" +
     '<div class="calsub">' + fmt$(used) + " of collateral" + (used > cap + EPS
       ? ": " + fmt$(cap) + " of your cash and <b>" + fmt$(used - cap) + "</b> covered by the credit as it comes in."
@@ -1088,7 +1093,6 @@ function updateNP(){
   }
   h += '<div class="calsub calrule">Buying power ' + fmt$(d.bp) + " &rarr; " + fmt$(d.bp - coll + net) + " once sold, the credit counted toward collateral.</div></div>";
   if(coll - net > d.bp + EPS) h += '<div class="flag red">Even with the credit, that is ' + fmt$(coll - net - d.bp) + " more collateral than you have free. Your call &mdash; nothing here stops you.</div>";
-  if(wk*100 < a.minWeekly - 1e-9) h += '<div class="flag amber">Below your ' + a.minWeekly + "% weekly minimum.</div>";
   if(days < 0) h += '<div class="flag red">Expiry is before the sale date.</div>';
   else if(!isFriday(f.exp)) h += '<div class="flag mut">Expiry isn\'t a Friday &mdash; fine for a holiday week, worth a second look otherwise.</div>';
   box.innerHTML = h;
@@ -1221,11 +1225,23 @@ function renderOpen(){
   $("openSummary").innerHTML = list.length
     ? plural(list.length,"position") + VBAR + fmt$(d.cost + d.coll + d.longc) + " at work"
     : "";
+  // One button that does whichever is useful: collapse while any card is open, expand once all are shut.
+  const anyOpen = list.some(x=>!x.p.shut);
+  $("openAll").innerHTML = list.length
+    ? '<button class="small" onclick="setAllPos(' + (anyOpen ? "true" : "false") + ')">' + (anyOpen ? "Collapse all" : "Expand all") + '</button>'
+    : "";
   $("body_open").innerHTML = list.length
     ? list.map(x=>posCard(x.p, x.d)).join("")
     : '<div class="card muted">Nothing open. Sell a put in section 03 and it appears here.</div>';
 }
 window.togglePos = pid => { const p = findPos(pid); p.shut = !p.shut; save(); renderOpen(); };
+window.setAllPos = shut => {
+  const a = acct(), d = deriveAcct(a);
+  d.open.forEach(x=>{ x.p.shut = shut; });
+  // Collapsing everything only makes sense if you can see the result, so open the section too.
+  root.collapsed.open = false;
+  save(); renderOpen(); renderSections();
+};
 window.histToggle = (pid, open) => { const p = findPos(pid); if(p && !!p.hist!==open){ p.hist = open; save(); } };
 window.setMark = (pid, v) => { const p = findPos(pid); p.mark = num(v)>0 ? num(v) : null; save(); render(); };
 window.delPos = pid => {
@@ -1471,7 +1487,7 @@ window.addAcct = () => {
     if(Object.values(root.accounts).some(x=>x.name.toLowerCase()===name.toLowerCase())) return "There is already an account called " + name + ".";
     if(!(start>=0)) return "Starting value is missing.";
     const a = newAccount(name, r2(start)), cur = acct();
-    a.fee = cur.fee; a.minWeekly = cur.minWeekly;
+    a.fee = cur.fee;
     root.accounts[a.id] = a; root.order.push(a.id); root.active = a.id;
     return null;
   });
@@ -1619,7 +1635,6 @@ function wire(){
   const setA = (id, fn) => $(id).addEventListener("change", e=>{ fn(acct(), e.target.value); save(); render(); });
   setA("s_start",     (a,v)=>{ if(num(v)!=null) a.start = r2(num(v)); });
   setA("s_fee",       (a,v)=>{ if(num(v)>=0) a.fee = num(v); });
-  setA("s_min",       (a,v)=>{ if(num(v)>=0) a.minWeekly = num(v); });
   $("sel_cap").addEventListener("input", e=>{ const v = num(e.target.value); acct().capital = v>=0 ? v : null; save(); selCompute(); });
 
   $("f_date").value = todayISO();

@@ -50,8 +50,15 @@ Single self-contained `index.html`, house style from `../PROJECT-HANDOFF.md`. St
   puts paying $113.70 (Steve's ABC + QUP case). With one expiry it's exact: a DP over collateral in
   the strikes' common step, keeping the most credit at each level. With mixed expiries it's a DP
   over cash needed, rounded up, so it can't overspend. At build time it was checked against
-  brute force on 300 random lists. Rows below the weekly minimum are excluded. The result box
-  states returns on the whole capital figure.
+  brute force on 300 random lists. The result box leads with the gain as a % of account value, and
+  adds the % on capital-to-deploy when that figure differs.
+- **No per-put return floor** (removed 2026-10-05, at Steve's request). The old "min weekly
+  return %" setting gated each put on its own yield, which could leave cash idle that a low-yield
+  put would have put to work. The goal is total account gain, so every put competes on the dollars
+  it adds. Rows are excluded only for: expired, fees ≥ credit, too big. They're checked in that
+  order, so "too big" is never hidden behind a yield label.
+- **Collapse all / Expand all** on Open Positions. It's one button showing whichever action
+  applies.
 - **A fixed "Capital to deploy" shrinks as you sell** from section 03, by the cash each sale used.
   Blank means "all of buying power" and follows BP on its own.
 - **No start date.** Dropped at Steve's request. The equity chart starts at the first event.
