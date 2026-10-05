@@ -107,7 +107,13 @@ Single self-contained `index.html`, house style from `../PROJECT-HANDOFF.md`. St
     strike band, `price × (1 − band%)` × 100, against `min(capital, cap room)`. Band is a shared
     setting, default 10%, for puts just outside 40 delta. The credit offset is ignored because
     it's unknown at import.
-  - **Already-listed tickers** get their price updated, not duplicated. Tickers with no price are
+  - **Title lines before the header** (scanner exports open with "Watchlist Scanner", "Results")
+    are skipped. Rows narrower than the table's usual width are ignored, and the header row is
+    searched for in the first 15 rows. Header words are never taken as tickers. Tested on Steve's
+    real export: 32 added, 33 left out, all priced, for a $10k account.
+  - **Already-listed tickers** get their price updated, not duplicated. A re-import re-checks
+    size and removes oversized rows that were never filled in. It also sweeps unfilled rows named
+    after header words. Tickers with no price are
     added unchecked and flagged.
   - **The strike box** placeholder shows the band floor. "Remove unfilled" clears rows left blank.
 - **Selector picks are listed best first** by weekly return on collateral (ties by net), numbered,
