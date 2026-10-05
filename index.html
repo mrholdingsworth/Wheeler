@@ -261,21 +261,27 @@ details[open] summary::before{content:"\25BE  "}
     <span class="muted" style="margin-left:auto" id="selSummary"></span>
   </div>
   <div id="body_sel">
+    <div class="muted" style="margin-top:8px">One list for every account. Each account runs it against its own buying power, fees and cap.</div>
     <div class="row" style="margin-top:10px">
-      <div style="width:170px"><label for="sel_cap">Capital to deploy</label><input id="sel_cap" type="number" step="0.01"></div>
-      <span class="muted" style="align-self:center" id="selCapNote"></span>
-    </div>
-    <div class="scroll" style="margin-top:12px"><table class="seltbl" id="selTbl"></table></div>
-    <div class="row" style="margin-top:10px">
+      <button class="small primary" onclick="$('csvInput').click()">Import CSV</button>
+      <input type="file" id="csvInput" accept=".csv,text/csv,.txt,text/plain" style="display:none;width:auto">
+      <div style="display:flex;align-items:center;gap:6px"><label for="sel_band" style="margin:0">Strike band</label>
+        <input id="sel_band" type="number" step="1" min="0" max="50" style="width:64px"><span class="muted">% under price</span></div>
       <button class="small" onclick="addCand()">+ Add a put</button>
+      <button class="small" onclick="dropEmpty()" title="Remove rows with no strike or credit">Remove unfilled</button>
       <button class="small danger" style="margin-left:auto" onclick="clearCands()">Clear list</button>
     </div>
+    <div id="sel_imp"></div>
+    <div class="scroll" style="margin-top:12px"><table class="seltbl" id="selTbl"></table></div>
     <div id="selOut"></div>
     <div class="hint">
-      Picks the mix of contracts with the most net credit that fits the capital, fees taken out per contract &mdash; the
-      biggest gain for the account as a whole. No put is ruled out for a low return on its own: if it fills cash that
-      would otherwise sit idle, it adds to the total. When expiries differ, each credit is scaled to a week so a
-      two-week put has to earn twice as much to compete &mdash; with one expiry it is simply the largest total credit.
+      CSV: a symbol column and a price column &mdash; headers like Symbol/Ticker and Price/Last are found on their own,
+      or the first column is taken as the symbol and the first number after it as the price. A ticker is left out
+      when no account could hold one contract at the bottom of the strike band (price less the band), against its
+      free cash and its per-symbol cap. Strike and credit are yours to fill in.
+      <br>Each account's picks are the mix of contracts with the most net credit that fits its capital, fees taken out
+      per contract &mdash; the biggest gain for the account as a whole. When expiries differ, each credit is scaled to a
+      week so a two-week put has to earn twice as much to compete.
     </div>
   </div>
 </div>
@@ -435,11 +441,11 @@ const nextN = () => (root.seq = (root.seq||0) + 1);
 
 function newAccount(name, start){
   return { id:uid(), name:name||"Wheeler", start: start==null ? 10000 : start,
-           fee:0.65, hurdle:1, maxAlloc:null, capital:null, flows:[], positions:[], cands:[] };
+           fee:0.65, hurdle:1, maxAlloc:null, capital:null, flows:[], positions:[] };
 }
 function newRoot(){
   const a = newAccount("Wheeler", 10000);
-  return { v:SCHEMA, seq:0, active:a.id, order:[a.id], accounts:{[a.id]:a}, collapsed:{} };
+  return { v:SCHEMA, seq:0, active:a.id, order:[a.id], accounts:{[a.id]:a}, collapsed:{}, cands:[], band:10 };
 }
 const acct = () => root.accounts[root.active];
 const findPos = pid => acct().positions.find(p=>p.id===pid);
@@ -463,6 +469,23 @@ function normalize(){
   if(!root.accounts[root.active]) root.active = root.order[0];
   const d = newAccount("x");
   let maxN = root.seq || 0;
+  // The put list used to belong to each account. It is one shared list now: fold every account's old
+  // list into it, keeping the first copy of any row that appears in more than one.
+  if(!Array.isArray(root.cands)) root.cands = [];
+  if(root.band==null) root.band = 10;
+  const sig = c => [c.sym||"", c.strike, c.credit, c.exp].join("|");
+  const have = {}; root.cands.forEach(c=>{ have[sig(c)] = 1; });
+  Object.keys(root.accounts).forEach(id=>{
+    const a = root.accounts[id];
+    if(Array.isArray(a.cands)) a.cands.forEach(c=>{ if(!have[sig(c)]){ have[sig(c)] = 1; root.cands.push(c); } });
+    delete a.cands;
+  });
+  root.cands.forEach(c=>{
+    if(!c.id) c.id = uid();
+    if(!(c.max>=1)) c.max = 1;
+    if(!c.sold || typeof c.sold!=="object") c.sold = {};
+    if(c.last===undefined) c.last = null;
+  });
   Object.keys(root.accounts).forEach(id=>{
     const a = root.accounts[id];
     a.id = id;
@@ -470,7 +493,7 @@ function normalize(){
     ["name","start","fee","hurdle"].forEach(k=>{ if(a[k]==null) a[k] = d[k]; });
     if(a.capital===undefined) a.capital = null;
     if(a.maxAlloc===undefined) a.maxAlloc = null;
-    ["flows","positions","cands"].forEach(k=>{ if(!Array.isArray(a[k])) a[k] = []; });
+    ["flows","positions"].forEach(k=>{ if(!Array.isArray(a[k])) a[k] = []; });
     a.flows.forEach(f=>{ if(!f.id) f.id = uid(); maxN = Math.max(maxN, f.n||0); });
     a.positions.forEach(p=>{
       if(!p.id) p.id = uid();
@@ -481,7 +504,6 @@ function normalize(){
       p.legs.forEach(L=>{ maxN = Math.max(maxN, L.open.n||0, L.close ? (L.close.n||0) : 0); });
       p.shares.forEach(S=>{ maxN = Math.max(maxN, S.n||0); });
     });
-    a.cands.forEach(c=>{ if(!c.id) c.id = uid(); if(!(c.max>=1)) c.max = 1; });
   });
   root.seq = maxN;
 }
@@ -789,7 +811,7 @@ function syncInputs(){
   const a = acct();
   setVal("s_start", a.start);
   setVal("s_fee", a.fee); setVal("s_hurdle", a.hurdle); setVal("s_alloc", a.maxAlloc==null ? "" : a.maxAlloc);
-  setVal("sel_cap", a.capital==null ? "" : a.capital);
+  setVal("sel_band", root.band);
   if(document.activeElement!==$("np_exp")) setNpExp();
 }
 
@@ -837,21 +859,25 @@ const VBAR = '<span class="vbar">|</span>';
 function candCap(a, d){ return a.capital!=null ? a.capital : Math.max(0, d.bp); }
 function selRows(a, cap, d){
   const today = todayISO(), limit = symCap(a, d);
-  return a.cands.map((c,i)=>{
+  return root.cands.map((c,i)=>{
     const strike = num(c.strike), credit = num(c.credit);
-    const max = Math.max(1, Math.floor(num(c.max)||1));
+    // Max qty is per account, less what this account has already sold off this row.
+    const sold = (c.sold && c.sold[a.id]) || 0;
+    const max = Math.max(0, Math.max(1, Math.floor(num(c.max)||1)) - sold);
     // Rows with no symbol yet can't share a cap with anything, so each stands alone.
     const key = c.sym ? c.sym : "\u0000row" + i;
     const held = c.sym ? exposure(d, c.sym) : 0;
-    const r = {i, c, strike, credit, max, exp:c.exp, ok:false, why:"", key, held, room: Math.max(0, limit - held)};
+    const r = {i, c, strike, credit, max, sold, exp:c.exp, ok:false, why:"", key, held, room: Math.max(0, limit - held)};
     if(!(strike>0) || !(credit>0) || !c.exp){ r.why = "incomplete"; return r; }
+    if(max<1){ r.why = "sold"; }
     r.coll = strike*100; r.net = credit*100 - a.fee;
     r.days = daysBetween(today, c.exp);
     r.roc = r.net / r.coll; r.wk = weekly(r.roc, r.days); r.ann = annual(r.roc, r.days);
     r.val = r.net * 7 / Math.max(WEEK_FLOOR, r.days);    // net credit per week-equivalent
     // No per-put return floor. The goal is the most total credit on the account, and a low-yield put
     // that fills idle capital still adds to it; a floor would leave that cash earning nothing.
-    if(r.days < 0) r.why = "expired";
+    if(r.why==="sold") {}
+    else if(r.days < 0) r.why = "expired";
     else if(r.net <= 0) r.why = "fees eat it";
     else if(r.coll - r.net > cap + 1e-9) r.why = "too big";
     else if(r.coll > r.room + 1e-6) r.why = "at cap";
@@ -978,43 +1004,54 @@ function expOptions(sel, from){
   if(sel && fr.indexOf(sel)<0) fr = [sel].concat(fr.slice(0, EXP_N-1));
   return fr.map(f=>'<option value="'+f+'"'+(f===sel?" selected":"")+'>'+fmtD(f)+(isFriday(f)?"":" (not a Fri)")+'</option>').join("");
 }
+// The bottom of the strike band: the lowest strike worth considering on a ticker at this price. Puts
+// are sold just outside 40 delta, which sits within roughly this far under the price.
+const bandFloor = last => last>0 ? last*(1 - (root.band||0)/100) : null;
 function renderSelTable(){
-  const a = acct();
-  if(!a.cands.length){
-    $("selTbl").innerHTML = '<tr><td class="muted" style="border:0;padding-left:0">No puts listed. Add the ones you are weighing this week &mdash; symbol, strike, the credit you expect, and the Friday.</td></tr>';
+  const cands = root.cands;
+  if(!cands.length){
+    $("selTbl").innerHTML = '<tr><td class="muted" style="border:0;padding-left:0">No puts listed. Import a CSV of tickers and prices, or add rows by hand &mdash; symbol, strike, the credit you expect, and the Friday.</td></tr>';
     selCompute(); return;
   }
   $("selTbl").innerHTML =
-    '<tr><th>Symbol</th><th>Strike</th><th>Credit</th><th>Expiry</th><th title="Most contracts you would sell of this one">Max qty</th>' +
-    '<th class="num">Collateral</th><th class="num">Net / contract</th><th class="num">Weekly</th><th class="num">Annualized</th><th>Pick</th><th></th></tr>' +
-    a.cands.map((c,i)=>
-      '<tr><td class="sym"><input value="'+esc(c.sym||"")+'" oninput="candSet('+i+',\'sym\',this.value)" placeholder="xyz"></td>' +
-      '<td><input type="number" step="any" value="'+esc(c.strike==null?"":c.strike)+'" oninput="candSet('+i+',\'strike\',this.value)" placeholder="40"></td>' +
+    '<tr><th>Symbol</th><th class="num">Last</th><th>Strike</th><th>Credit</th><th>Expiry</th><th title="Most contracts you would sell of this one, per account">Max qty</th>' +
+    '<th class="num">Collateral</th><th class="num" title="Credit less the active account\'s fee per contract">Net / contract</th><th class="num">Weekly</th><th class="num">Annualized</th><th>Picks</th><th></th></tr>' +
+    cands.map((c,i)=>{
+      const fl = bandFloor(c.last);
+      return '<tr><td class="sym"><input value="'+esc(c.sym||"")+'" oninput="candSet('+i+',\'sym\',this.value)" placeholder="xyz"></td>' +
+      '<td class="num" title="'+(fl ? "Band: " + fmtP(fl) + " to " + fmtP(c.last) : "")+'">'+(c.last>0 ? fmtP(c.last) : '<span class="muted">—</span>')+'</td>' +
+      '<td><input type="number" step="any" value="'+esc(c.strike==null?"":c.strike)+'" oninput="candSet('+i+',\'strike\',this.value)" placeholder="'+(fl ? "≥ " + fl.toFixed(2) : "40")+'"></td>' +
       '<td><input type="number" step="any" value="'+esc(c.credit==null?"":c.credit)+'" oninput="candSet('+i+',\'credit\',this.value)" placeholder="0.40"></td>' +
       '<td><select oninput="candSet('+i+',\'exp\',this.value)">'+expOptions(c.exp)+'</select></td>' +
       '<td><input type="number" step="1" min="1" value="'+esc(c.max)+'" oninput="candSet('+i+',\'max\',this.value)" style="min-width:54px;width:64px"></td>' +
       '<td class="num" id="cc_coll_'+i+'"></td><td class="num" id="cc_net_'+i+'"></td><td class="num" id="cc_wk_'+i+'"></td>' +
       '<td class="num" id="cc_ann_'+i+'"></td><td id="cc_st_'+i+'"></td>' +
-      '<td class="num"><button class="x" title="Remove" onclick="delCand('+i+')">&#10005;</button></td></tr>'
-    ).join("");
+      '<td class="num"><button class="x" title="Remove" onclick="delCand('+i+')">&#10005;</button></td></tr>';
+    }).join("");
   selCompute();
 }
+const newCand = (sym, last, exp) => ({id:uid(), sym:sym||"", last:last>0 ? last : null, strike:null, credit:null, exp: exp || nextFriday(), max:1, sold:{}});
 window.addCand = () => {
-  const a = acct(), last = a.cands[a.cands.length-1];
-  a.cands.push({id:uid(), sym:"", strike:null, credit:null, exp: last ? last.exp : nextFriday(), max:1});
+  const last = root.cands[root.cands.length-1];
+  root.cands.push(newCand("", null, last ? last.exp : null));
   save(); renderSelTable();
   const ins = $("selTbl").querySelectorAll("tr:last-child input");
   if(ins[0]) ins[0].focus();
 };
-window.delCand = i => { acct().cands.splice(i,1); save(); renderSelTable(); };
+window.delCand = i => { root.cands.splice(i,1); save(); renderSelTable(); };
 window.clearCands = () => {
-  const a = acct();
-  if(!a.cands.length || !confirm("Clear all " + a.cands.length + " puts from the list?")) return;
-  a.cands = []; save(); renderSelTable();
+  if(!root.cands.length || !confirm("Clear all " + root.cands.length + " puts from the shared list? Every account uses it.")) return;
+  root.cands = []; $("sel_imp").innerHTML = ""; save(); renderSelTable();
+};
+// After filling in the ones worth selling, clear out the rest of an imported list in one go.
+window.dropEmpty = () => {
+  const keep = root.cands.filter(c=>num(c.strike)>0 && num(c.credit)>0), n = root.cands.length - keep.length;
+  if(!n || !confirm("Remove " + plural(n,"row") + " with no strike or credit?")) return;
+  root.cands = keep; save(); renderSelTable();
 };
 // Updates state and the computed cells only — rebuilding the rows would steal focus mid-keystroke.
 window.candSet = (i, k, v) => {
-  const c = acct().cands[i];
+  const c = root.cands[i];
   if(!c) return;
   if(k==="sym") c.sym = v.trim().toUpperCase();
   else if(k==="exp") c.exp = v;
@@ -1023,14 +1060,56 @@ window.candSet = (i, k, v) => {
   save(); selCompute();
 };
 
-let lastPicks = [];
+// Each account's picks from the shared list, keyed by account id, for the Sell buttons.
+let lastPicks = {};
 function selCompute(){
-  const a = acct(), d = deriveAcct(a), bp = Math.max(0, d.bp), cap = candCap(a, d);
-  $("sel_cap").placeholder = bp.toFixed(2);
-  $("selCapNote").innerHTML = a.capital==null
-    ? "Blank uses all free buying power, " + fmt$(bp) + "."
-    : (a.capital > bp + EPS ? '<span style="color:var(--amber)">More than the ' + fmt$(bp) + ' free &mdash; flagged, not stopped.</span>'
-                            : "Holding back " + fmt$(bp - a.capital) + " of " + fmt$(bp) + " free.");
+  // Active account first, so the one you are working in is the one at the top.
+  const ids = [root.active].concat(root.order.filter(id=>id!==root.active));
+  const res = ids.map(id=>selFor(root.accounts[id]));
+  const many = ids.length > 1, act = res[0];
+  // The per-row figures follow the active account's fee; only Net differs between accounts.
+  act.rows.forEach(r=>{
+    const set = (id, h) => { const el = $(id+r.i); if(el) el.innerHTML = h; };
+    set("cc_coll_", r.coll ? fmt$(r.coll) : "");
+    set("cc_net_",  r.net!=null ? '<span class="'+cls(r.net)+'">'+fmt$(r.net)+'</span>' : "");
+    set("cc_wk_",   r.wk!=null ? pct(r.wk) : "");
+    set("cc_ann_",  r.ann!=null ? pct(r.ann,1) : "");
+  });
+  // Picks: one chip per account, named when there is more than one.
+  root.cands.forEach((c,i)=>{
+    const el = $("cc_st_"+i); if(!el) return;
+    el.innerHTML = res.map(R=>{
+      const r = R.rows[i], nm = many ? esc(R.a.name.length > 10 ? R.a.name.slice(0,9) + "…" : R.a.name) + " " : "";
+      if(R.take[i]) return '<span class="pill good">' + nm + 'take ' + R.take[i] + '</span>';
+      if(r.why==="sold") return '<span class="pill plain">' + nm + 'sold ' + r.sold + '</span>';
+      if(r.ok) return '<span class="pill plain">' + nm + 'pass</span>';
+      if(r.why==="incomplete") return "";
+      return '<span class="pill warn"' + (r.why==="at cap" ? ' title="' + fmt$(r.held) + ' already in ' + esc(c.sym) + '; ' +
+        fmt$(r.room) + ' of room under the cap, ' + fmt$(r.coll) + ' needed"' : "") + '>' + nm + esc(r.why) + '</span>';
+    }).filter(Boolean).join(" ");
+  });
+  const nPick = res.reduce((s,R)=>s + R.picks.length, 0);
+  $("selSummary").textContent = root.cands.length ? plural(root.cands.length,"put") + " listed" +
+    (nPick ? ", " + nPick + " picked" + (many ? " across " + plural(res.filter(R=>R.picks.length).length,"account") : "") : "") : "";
+  $("selOut").innerHTML = root.cands.length ? res.map(R=>R.html).join("") : "";
+}
+window.setCap = (id, v) => {
+  const a = root.accounts[id]; if(!a) return;
+  const n = num(v); a.capital = n>=0 && String(v).trim()!=="" ? n : null;
+  save(); selCompute();
+};
+function selFor(a){
+  const d = deriveAcct(a), bp = Math.max(0, d.bp), cap = candCap(a, d), many = root.order.length > 1;
+  const capNoteTxt = a.capital==null
+    ? "blank uses all free buying power, " + fmt$(bp)
+    : (a.capital > bp + EPS ? '<span style="color:var(--amber)">more than the ' + fmt$(bp) + ' free &mdash; flagged, not stopped</span>'
+                            : "holding back " + fmt$(bp - a.capital) + " of " + fmt$(bp) + " free");
+  const head = '<div class="row" style="margin:16px 0 0;align-items:center">' +
+    (many ? '<span class="head" style="margin:0' + (a.id===root.active ? ";color:var(--blue)" : "") + '">' + esc(a.name) + '</span>' : "") +
+    '<label for="cap_' + a.id + '" style="margin:0">Capital to deploy</label>' +
+    '<input id="cap_' + a.id + '" type="number" step="0.01" style="width:130px" value="' + (a.capital==null ? "" : a.capital) +
+    '" placeholder="' + bp.toFixed(2) + '" onchange="setCap(' + q(a.id) + ',this.value)">' +
+    '<span class="muted">' + capNoteTxt + '</span></div>';
   const rows = selRows(a, cap, d), limit = symCap(a, d);
   const elig = rows.filter(r=>r.ok);
   const oneExpAll = elig.every(r=>r.exp===(elig[0]||{}).exp);
@@ -1063,36 +1142,20 @@ function selCompute(){
   const take = {};
   elig.forEach((r,j)=>{ if(k.cnt[j]) take[r.i] = k.cnt[j]; });
 
-  rows.forEach(r=>{
-    const set = (id, h) => { const el = $(id+r.i); if(el) el.innerHTML = h; };
-    set("cc_coll_", r.coll ? fmt$(r.coll) : "");
-    set("cc_net_",  r.net!=null ? '<span class="'+cls(r.net)+'">'+fmt$(r.net)+'</span>' : "");
-    set("cc_wk_",   r.wk!=null ? pct(r.wk) : "");
-    set("cc_ann_",  r.ann!=null ? pct(r.ann,1) : "");
-    set("cc_st_",   take[r.i] ? '<span class="pill good">take '+take[r.i]+'</span>'
-                  : r.ok ? '<span class="pill plain">pass</span>'
-                  : r.why==="incomplete" ? ""
-                  : '<span class="pill warn"' + (r.why==="at cap" ? ' title="' + fmt$(r.held) + ' already in ' + esc(r.c.sym) + '; ' +
-                      fmt$(r.room) + ' of room under the cap, ' + fmt$(r.coll) + ' needed"' : "") + '>'+esc(r.why)+'</span>');
-  });
-
   // Listed best first, by return on the collateral each put ties up (per week, so expiries compare
   // fairly) — not by dollars, which would just rank the highest strikes first. Sell in this order:
   // if a fill comes in better than expected, the list re-runs on what is left, and the one already
   // sold was the one most worth securing.
   const picks = elig.map(r=>({r, n:take[r.i]||0})).filter(x=>x.n>0)
     .sort((x,y)=> (y.r.wk - x.r.wk) || (y.r.net - x.r.net));
-  lastPicks = picks;
-  const out = $("selOut");
-  $("selSummary").textContent = a.cands.length ? plural(a.cands.length,"put") + " listed" + (picks.length ? ", " + picks.length + " picked" : "") : "";
-  if(!a.cands.length){ out.innerHTML = ""; return; }
+  lastPicks[a.id] = picks;
+  const result = html => ({a, rows, take, picks, html: head + html});
   if(!picks.length){
     const why = rows.filter(r=>!r.ok && r.why!=="incomplete");
-    out.innerHTML = '<div class="calbox"><div class="calans" style="color:var(--amber)">Nothing to sell</div><div class="calsub">' +
+    return result('<div class="calbox"><div class="calans" style="color:var(--amber)">Nothing to sell</div><div class="calsub">' +
       (cap < 100 ? "There is no capital to put up &mdash; " + fmt$(cap) + " free."
        : why.length ? "Every complete row is out: " + why.map(r=>esc(r.c.sym||"?")+" "+esc(r.why)).join(", ") + "."
-       : "Fill in strike, credit and expiry on at least one row.") + '</div>' + capNote + '</div>';
-    return;
+       : "Fill in strike, credit and expiry on at least one row.") + '</div>' + capNote + '</div>');
   }
   let used = 0, gross = 0, fees = 0, val = 0;
   picks.forEach(x=>{ used += x.r.coll*x.n; gross += x.r.credit*100*x.n; fees += a.fee*x.n; val += x.r.val*x.n; });
@@ -1112,14 +1175,14 @@ function selCompute(){
     const r = x.r;
     return '<div class="pick"><span class="muted" style="font-family:var(--mono);min-width:16px">' + (i+1) + '.</span><span class="w">' + x.n + "&times; " + esc(r.c.sym||"?") + " <b>" + fmtP(r.strike) + "</b> put " + fmtD(r.exp) +
       " @ " + fmtP(r.credit) + '</span><span class="muted">' + fmt$(r.coll*x.n) + " collateral" + VBAR + fmt$(r.net*x.n) + " net" + VBAR +
-      pct(r.wk) + " a week</span>" + '<button class="small" style="margin-left:auto" onclick="pickToForm(' + picks.indexOf(x) + ')">Sell</button></div>';
+      pct(r.wk) + " a week</span>" + '<button class="small" style="margin-left:auto" onclick="pickToForm(' + q(a.id) + ',' + i + ')">Sell</button></div>';
   }).join("");
   // Returns are stated on the whole capital figure, because that is what is being maximized: an idle
   // dollar earns nothing and has to count against the week.
   const wkOn = base => base>0 ? (oneExp ? weekly(net/base, picks[0].r.days) : val/base) : null;
   const wkAcct = wkOn(d.value), wkCap = wkOn(cap);
   const nextMax = Math.floor((left - a.fee)/100*100)/100;
-  out.innerHTML = '<div class="calbox"><div class="calans">Sell ' + plural(picks.reduce((s,x)=>s+x.n,0),"contract") + " for " + fmt$(net) + " net</div>" +
+  return result('<div class="calbox"><div class="calans">Sell ' + plural(picks.reduce((s,x)=>s+x.n,0),"contract") + " for " + fmt$(net) + " net</div>" +
     '<div class="calsub"><b>' + pct(wkAcct) + "</b> a week on the " + fmt$(d.value) + " account" + VBAR + "<b>" + pct(wkAcct*365/7,1) + "</b> annualized, simple." +
     (Math.abs(cap - d.value) > EPS ? " On the " + fmt$(cap) + " put to work: " + pct(wkCap) + " a week." : "") + " " +
     fmt$(gross) + " credit less " + fmt$(fees) + " fees.</div>" +
@@ -1131,10 +1194,12 @@ function selCompute(){
     '<div class="calsub calrule">Leaves ' + fmt$(left) + (nextMax >= 1 ? " &mdash; room for one more put up to " + fmtP(nextMax) + " strike plus its credit." : ".") +
     (oneExp ? "" : " Expiries differ, so the picks are ranked on credit per week.") +
     (k.approx ? " Capital is large next to the strike steps, so collateral was rounded up to a coarser unit; the mix may leave a little on the table." : "") +
-    "</div>" + capNote + "</div>";
+    "</div>" + capNote + "</div>");
 }
-window.pickToForm = i => {
-  const x = lastPicks[i]; if(!x) return;
+// Sell from an account's picks: switch to that account first, since the sale is recorded there.
+window.pickToForm = (aid, i) => {
+  const x = (lastPicks[aid]||[])[i]; if(!x) return;
+  if(root.active!==aid && root.accounts[aid]){ root.active = aid; save(); render(); }
   const r = x.r;
   $("np_sym").value = r.c.sym || ""; $("np_strike").value = r.strike;
   $("np_date").value = todayISO(); setNpExp(r.exp);
@@ -1144,6 +1209,87 @@ window.pickToForm = i => {
   updateNP();
   $("sec-new").scrollIntoView({block:"start"});
 };
+
+/* ---- CSV import ----
+   Reads tickers and prices out of whatever a screener or broker exports: comma, semicolon or tab
+   separated, quoted or not, with or without a header row. */
+function parseCSV(text){
+  const lines = String(text).replace(/^﻿/, "").split(/\r\n|\n|\r/).filter(l=>l.trim()!=="");
+  if(!lines.length) return [];
+  const f = lines[0];
+  const delim = f.indexOf("\t")>=0 ? "\t" : (f.split(";").length > f.split(",").length ? ";" : ",");
+  return lines.map(line=>{
+    const out = []; let cur = "", inQ = false;
+    for(let i=0; i<line.length; i++){
+      const ch = line[i];
+      if(inQ){
+        if(ch==='"'){ if(line[i+1]==='"'){ cur += '"'; i++; } else inQ = false; }
+        else cur += ch;
+      }
+      else if(ch==='"') inQ = true;
+      else if(ch===delim){ out.push(cur.trim()); cur = ""; }
+      else cur += ch;
+    }
+    out.push(cur.trim());
+    return out;
+  });
+}
+const csvNum = s => { const n = parseFloat(String(s==null?"":s).replace(/[$,\s]/g, "")); return isFinite(n) ? n : null; };
+const csvSym = s => String(s==null?"":s).trim().toUpperCase().replace(/^\$/, "");
+const TICKER = /^[A-Z][A-Z0-9.\-\/]{0,9}$/;
+// Find the symbol and price columns. A header row names them; without one, the symbol is the first
+// column and the price is the first column after it holding a number.
+function csvColumns(rows){
+  const h = rows[0].map(s=>String(s).toLowerCase());
+  const symH = h.findIndex(s=>/^(symbol|ticker|sym|ticker symbol|underlying)$/.test(s) || /symbol|ticker/.test(s));
+  const priceH = (()=>{ const exact = h.findIndex(s=>/^(price|last|last price|close|current|current price|mark|last sale)$/.test(s));
+    return exact>=0 ? exact : h.findIndex(s=>/price|last|close/.test(s)); })();
+  if(symH>=0 || (priceH>=0 && csvNum(rows[0][priceH])==null))
+    return {header:true, sym: symH>=0 ? symH : 0, price: priceH};
+  const r0 = rows[0], price = r0.findIndex((s,j)=>j>0 && csvNum(s)!=null);
+  return {header:false, sym:0, price};
+}
+function importCSV(text, name){
+  const box = $("sel_imp");
+  const rows = parseCSV(text);
+  if(!rows.length){ box.innerHTML = '<div class="err">' + esc(name||"That file") + " is empty.</div>"; return; }
+  const col = csvColumns(rows), body = col.header ? rows.slice(1) : rows;
+  // One entry per ticker; a later row only fills in a price the first one lacked.
+  const found = new Map();
+  body.forEach(r=>{
+    const sym = csvSym(r[col.sym]);
+    if(!TICKER.test(sym)) return;
+    const price = col.price>=0 ? csvNum(r[col.price]) : null;
+    if(!found.has(sym) || (!(found.get(sym)>0) && price>0)) found.set(sym, price);
+  });
+  if(!found.size){ box.innerHTML = '<div class="err">No tickers found in ' + esc(name||"the file") + " &mdash; nothing was added.</div>"; return; }
+
+  // What each account could put into one more symbol: the smaller of its capital to deploy and its
+  // room under the per-symbol cap. A ticker stays if any account could hold one contract at the
+  // bottom of the band.
+  const accts = root.order.map(id=>{ const a = root.accounts[id], d = deriveAcct(a); return {a, d, cap:candCap(a, d), limit:symCap(a, d)}; });
+  const roomFor = (x, sym) => Math.min(x.cap, Math.max(0, x.limit - exposure(x.d, sym)));
+  let added = 0, updated = 0;
+  const dropped = [], noPrice = [];
+  found.forEach((price, sym)=>{
+    const listed = root.cands.filter(c=>c.sym===sym);
+    if(listed.length){ if(price>0) listed.forEach(c=>{ c.last = price; }); updated++; return; }
+    if(!(price>0)){ root.cands.push(newCand(sym, null)); noPrice.push(sym); added++; return; }
+    const need = bandFloor(price)*100;
+    const best = Math.max.apply(null, accts.map(x=>roomFor(x, sym)));
+    if(need > best + 1e-6){ dropped.push({sym, price, need, best}); return; }
+    root.cands.push(newCand(sym, price)); added++;
+  });
+  save(); renderSelTable();
+
+  const list = (arr, f) => arr.slice(0,12).map(f).join(", ") + (arr.length > 12 ? ", and " + (arr.length - 12) + " more" : "");
+  box.innerHTML = '<div class="okmsg">' + esc(name||"CSV") + ": " + plural(found.size,"ticker") + " &mdash; added " + added +
+    (updated ? ", " + updated + " already listed (price updated)" : "") + (dropped.length ? ", " + dropped.length + " left out" : "") + ".</div>" +
+    (dropped.length ? '<div class="flag mut">Left out &mdash; one contract at ' + root.band + "% under the price is more than any account can put into the symbol: " +
+      list(dropped, x=>esc(x.sym) + " " + fmtP(x.price) + " (" + fmt$(x.need) + " vs " + fmt$(x.best) + ")") + ".</div>" : "") +
+    (noPrice.length ? '<div class="flag amber">No price for ' + list(noPrice, esc) + " &mdash; added without a size check.</div>" : "") +
+    (col.price<0 ? '<div class="flag amber">No price column found, so nothing could be size-checked.</div>' : "");
+}
 
 /* ---------------- 03 · Sell a Put ---------------- */
 // Expiry offers the Fridays from the sale date on, so back-dating a sale back-dates the choices with
@@ -1206,9 +1352,10 @@ function recordNP(){
   // used, so the selector's next answer is about what is left, not the whole amount again.
   if(a.capital!=null) a.capital = Math.max(0, r2(a.capital - (f.strike*100*f.qty - (f.credit*100*f.qty - f.fees))));
   save();
-  // Drop the matching row from the selector: it has been acted on.
-  const ci = a.cands.findIndex(c=>c.sym===f.sym && num(c.strike)===f.strike && c.exp===f.exp);
-  if(ci>=0){ a.cands.splice(ci,1); save(); }
+  // Mark the matching row sold for this account. The row stays, because the list is shared and other
+  // accounts may still want it; this account's picks drop by the contracts just sold.
+  const c = root.cands.find(c=>c.sym===f.sym && num(c.strike)===f.strike && c.exp===f.exp);
+  if(c){ c.sold[a.id] = (c.sold[a.id]||0) + f.qty; save(); }
   ["np_sym","np_strike","np_credit"].forEach(id=>$(id).value = "");
   $("np_qty").value = 1; $("np_fees").dataset.touched = ""; autoFee("np_qty","np_fees");
   render();
@@ -1811,7 +1958,13 @@ function wire(){
   setA("s_hurdle",    (a,v)=>{ if(num(v)>=0) a.hurdle = num(v); });
   // Blank or zero means no cap; anything over 100 is no cap either, so store it as none.
   setA("s_alloc",     (a,v)=>{ const n = num(v); a.maxAlloc = n>0 && n<100 ? n : null; });
-  $("sel_cap").addEventListener("input", e=>{ const v = num(e.target.value); acct().capital = v>=0 ? v : null; save(); selCompute(); });
+  $("sel_band").addEventListener("change", e=>{ const v = num(e.target.value); if(v>=0 && v<100){ root.band = v; save(); renderSelTable(); } });
+  $("csvInput").addEventListener("change", e=>{
+    const f = e.target.files[0]; if(!f) return;
+    const rd = new FileReader();
+    rd.onload = () => { importCSV(String(rd.result), f.name); e.target.value = ""; };
+    rd.readAsText(f);
+  });
 
   $("f_date").value = todayISO();
   $("f_add").addEventListener("click", ()=>{

@@ -87,6 +87,29 @@ Single self-contained `index.html`, house style from `../PROJECT-HANDOFF.md`. St
 
   Steve's examples: 100 ABC at $50 against a 25% cap on $10k filters ABC out. At $10 a share, puts
   up to $15 are eligible and not above.
+- **One shared put list, run per account** (2026-10-05, after Steve's first live week showed the
+  same puts being typed into every account). The list is `root.cands`. Old per-account lists are
+  merged into it on load, deduplicated by symbol, strike, credit and expiry. The selector runs it
+  once per account against that account's buying power or capital-to-deploy, fees and per-symbol
+  cap. The active account is shown first.
+  - **Picks column:** one chip per account (take N / pass / sold N / too big / at cap), named when
+    there's more than one account.
+  - **Capital to deploy:** a box per account, now inside its result block.
+  - **Sell:** switches to that account before prefilling. A recorded sale no longer deletes the
+    row. It adds to `c.sold[accountId]`, which comes off that account's max qty, so other accounts
+    still see the row.
+  - **Net/contract:** uses the active account's fee; it's the only per-account column.
+- **CSV import** fills the list. Prices come from the CSV itself. Steve ruled out a quote API, so
+  there's no Finnhub here, deliberately. It finds Symbol/Ticker and Price/Last headers; with no
+  header, column 1 is the symbol and the first number after it is the price. It handles comma,
+  semicolon or tab, quotes, and `$`.
+  - **Filter:** a ticker is left out when no account could hold one contract at the bottom of the
+    strike band, `price × (1 − band%)` × 100, against `min(capital, cap room)`. Band is a shared
+    setting, default 10%, for puts just outside 40 delta. The credit offset is ignored because
+    it's unknown at import.
+  - **Already-listed tickers** get their price updated, not duplicated. Tickers with no price are
+    added unchecked and flagged.
+  - **The strike box** placeholder shows the band floor. "Remove unfilled" clears rows left blank.
 - **Selector picks are listed best first** by weekly return on collateral (ties by net), numbered,
   so the first one is the one to sell first. A dollar ordering would just rank the high strikes first.
 - **Collapse all / Expand all** on Open Positions. It's one button showing whichever action
