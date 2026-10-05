@@ -87,6 +87,8 @@ Single self-contained `index.html`, house style from `../PROJECT-HANDOFF.md`. St
 
   Steve's examples: 100 ABC at $50 against a 25% cap on $10k filters ABC out. At $10 a share, puts
   up to $15 are eligible and not above.
+- **Selector picks are listed best first** by weekly return on collateral (ties by net), numbered,
+  so the first one is the one to sell first. A dollar ordering would just rank the high strikes first.
 - **Collapse all / Expand all** on Open Positions. It's one button showing whichever action
   applies.
 - **A fixed "Capital to deploy" shrinks as you sell** from section 03, by the cash each sale used.

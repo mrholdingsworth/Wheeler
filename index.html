@@ -1076,7 +1076,12 @@ function selCompute(){
                       fmt$(r.room) + ' of room under the cap, ' + fmt$(r.coll) + ' needed"' : "") + '>'+esc(r.why)+'</span>');
   });
 
-  const picks = elig.map(r=>({r, n:take[r.i]||0})).filter(x=>x.n>0);
+  // Listed best first, by return on the collateral each put ties up (per week, so expiries compare
+  // fairly) — not by dollars, which would just rank the highest strikes first. Sell in this order:
+  // if a fill comes in better than expected, the list re-runs on what is left, and the one already
+  // sold was the one most worth securing.
+  const picks = elig.map(r=>({r, n:take[r.i]||0})).filter(x=>x.n>0)
+    .sort((x,y)=> (y.r.wk - x.r.wk) || (y.r.net - x.r.net));
   lastPicks = picks;
   const out = $("selOut");
   $("selSummary").textContent = a.cands.length ? plural(a.cands.length,"put") + " listed" + (picks.length ? ", " + picks.length + " picked" : "") : "";
@@ -1103,9 +1108,9 @@ function selCompute(){
     if(gain > EPS) vs = '<div class="calsub">Beats the best single contract &mdash; ' + esc(best.c.sym||"?") + " " + fmtP(best.strike) +
       " put for " + fmt$(best.net) + " net &mdash; by <b>" + fmt$(gain) + "</b>" + (allSame ? "" : " a week") + ".</div>";
   }
-  const lines = picks.map(x=>{
+  const lines = picks.map((x,i)=>{
     const r = x.r;
-    return '<div class="pick"><span class="w">' + x.n + "&times; " + esc(r.c.sym||"?") + " <b>" + fmtP(r.strike) + "</b> put " + fmtD(r.exp) +
+    return '<div class="pick"><span class="muted" style="font-family:var(--mono);min-width:16px">' + (i+1) + '.</span><span class="w">' + x.n + "&times; " + esc(r.c.sym||"?") + " <b>" + fmtP(r.strike) + "</b> put " + fmtD(r.exp) +
       " @ " + fmtP(r.credit) + '</span><span class="muted">' + fmt$(r.coll*x.n) + " collateral" + VBAR + fmt$(r.net*x.n) + " net" + VBAR +
       pct(r.wk) + " a week</span>" + '<button class="small" style="margin-left:auto" onclick="pickToForm(' + picks.indexOf(x) + ')">Sell</button></div>';
   }).join("");
@@ -1121,7 +1126,8 @@ function selCompute(){
     '<div class="calsub">' + fmt$(used) + " of collateral" + (used > cap + EPS
       ? ": " + fmt$(cap) + " of your cash and <b>" + fmt$(used - cap) + "</b> covered by the credit as it comes in."
       : ", " + fmt$(cash) + " of your cash once the credit lands.") + "</div>" + vs +
-    '<div class="calrule">' + lines + "</div>" +
+    '<div class="calrule">' + (picks.length > 1 ? '<div class="muted" style="margin-bottom:2px">Sell in this order &mdash; best return on collateral first. ' +
+      'A better fill than expected re-runs the list on what is left.</div>' : "") + lines + "</div>" +
     '<div class="calsub calrule">Leaves ' + fmt$(left) + (nextMax >= 1 ? " &mdash; room for one more put up to " + fmtP(nextMax) + " strike plus its credit." : ".") +
     (oneExp ? "" : " Expiries differ, so the picks are ranked on credit per week.") +
     (k.approx ? " Capital is large next to the strike steps, so collateral was rounded up to a coarser unit; the mix may leave a little on the table." : "") +
