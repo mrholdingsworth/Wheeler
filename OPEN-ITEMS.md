@@ -1,7 +1,7 @@
 # Wheeler — open items
 
 Single self-contained `index.html`, house style from `../PROJECT-HANDOFF.md`. Storage: one
-`localStorage` key, `wheel.v1`, schema 1. Footer version 0.9 (pre-release). Live at https://mrholdingsworth.github.io/Wheeler/ (repo
+`localStorage` key, `wheel.v1`, schema 1. Footer version 1.0, released 2026-10-05. Live at https://mrholdingsworth.github.io/Wheeler/ (repo
 `mrholdingsworth/Wheeler`, Pages from `main` / root).
 
 ## To do
