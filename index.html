@@ -147,8 +147,16 @@ td input,td select{padding:5px 8px;font-size:12.5px}
 tr.expand>td{background:var(--panel2);padding:10px 12px}
 tr.clickable{cursor:pointer}
 tr.clickable:hover td{background:rgba(77,159,255,.04)}
-.seltbl td input{min-width:70px}
-.seltbl td.sym input{min-width:74px;text-transform:uppercase}
+/* Input columns are held to their content (width:1% shrinks a cell to fit); the computed columns
+   share whatever is left. */
+.seltbl .t{width:1%;white-space:nowrap}
+.seltbl td.sym input{width:72px;text-transform:uppercase}
+.seltbl td.k input{width:72px}
+.seltbl td.cr input{width:66px}
+.seltbl td.mx input{width:52px}
+.seltbl td.ex select{width:auto}
+.seltbl .last{min-width:84px}
+.seltbl .g{min-width:104px}
 
 /* --- positions --- */
 .poshead{display:flex;align-items:center;gap:9px;flex-wrap:wrap}
@@ -209,11 +217,7 @@ details[open] summary::before{content:"\25BE  "}
   <div class="logo"><span class="gold">W</span>heeler</div>
   <div class="clock" id="clock" aria-live="off"></div>
 </div>
-<p class="tagline">
-  Sell the put, take the shares, sell the call. <em>Basis is the number that matters.</em> Every credit you bank
-  comes off what you paid, every closed leg lands in the account to the penny, and the cash you have free
-  sets the highest strike you can afford to sell next.
-</p>
+<p class="tagline">Sell the put, take the shares, sell the call. <em>Basis is the number that matters.</em></p>
 
 <!-- ======================= 01 · Account ======================= -->
 <div class="card" id="sec-acct">
@@ -242,14 +246,6 @@ details[open] summary::before{content:"\25BE  "}
       <div class="err" id="f_err"></div>
       <div class="scroll"><table id="flowsTbl" style="margin-top:10px"></table></div>
     </details>
-    <div class="hint">
-      Account value is the starting value plus deposits and <b>closed</b> P/L, to the penny. Shares count at what you paid
-      for them, not at market &mdash; put a last price on a position to see where it stands. Fees per contract fill in
-      the fee boxes as a starting guess; the number you type is the number recorded. Target weekly return sets the
-      buy-back prices on open short options &mdash; it does not filter the put selector. Max per symbol caps any one
-      symbol &mdash; shares at cost plus open put collateral &mdash; as a share of account value: the selector keeps
-      within it, and a sale you enter yourself is flagged, not stopped.
-    </div>
   </div>
 </div>
 
@@ -261,7 +257,6 @@ details[open] summary::before{content:"\25BE  "}
     <span class="muted" style="margin-left:auto" id="selSummary"></span>
   </div>
   <div id="body_sel">
-    <div class="muted" style="margin-top:8px">One list for every account. Each account runs it against its own buying power, fees and cap.</div>
     <div class="row" style="margin-top:10px">
       <button class="small primary" onclick="$('csvInput').click()">Import CSV</button>
       <input type="file" id="csvInput" accept=".csv,text/csv,.txt,text/plain" style="display:none;width:auto">
@@ -274,14 +269,6 @@ details[open] summary::before{content:"\25BE  "}
     <div id="sel_imp"></div>
     <div class="scroll" style="margin-top:12px"><table class="seltbl" id="selTbl"></table></div>
     <div id="selOut"></div>
-    <div class="hint">
-      CSV: the scanner's watchlist export &mdash; the Symbol and Last columns are read, the title lines above them
-      skipped. A ticker is left out when no account could hold one contract at the bottom of the strike band (price
-      less the band), against its free cash and its per-symbol cap. Strike and credit are yours to fill in.
-      <br>Each account's picks are the mix of contracts with the most net credit that fits its capital, fees taken out
-      per contract &mdash; the biggest gain for the account as a whole. When expiries differ, each credit is scaled to a
-      week so a two-week put has to earn twice as much to compete.
-    </div>
   </div>
 </div>
 
@@ -335,13 +322,8 @@ details[open] summary::before{content:"\25BE  "}
     <div class="statrow" id="closedStats" style="margin-top:12px"></div>
     <div class="scroll" style="margin-top:12px"><table id="closedTbl"></table></div>
     <div class="metric" style="margin-top:12px;padding:10px 12px" id="eqBox">
-      <div class="k">Account value over time &mdash; closed P/L and cash flows</div>
+      <div class="k">Account value</div>
       <svg class="chart" id="eqChart" viewBox="0 0 560 150"></svg>
-    </div>
-    <div class="hint">
-      Return on equity is total P/L over the most capital the position ever tied up &mdash; put collateral plus shares
-      at cost. Annualized is simple, not compounded: that return times 365 over the days held, and anything shorter
-      than a week counts as a week, because the cash cannot go back to work before the next Friday.
     </div>
   </div>
 </div>
@@ -362,9 +344,8 @@ details[open] summary::before{content:"\25BE  "}
       <button class="small primary" id="importBtn">Import from box</button>
       <button class="small danger" id="wipeBtn" style="margin-left:auto">Clear all data</button>
     </div>
-    <textarea id="io" style="margin-top:14px;min-height:96px;font-family:var(--mono);font-size:11.5px" placeholder="Every account, as JSON. Export here, keep it somewhere safe, paste it back to restore."></textarea>
+    <textarea id="io" style="margin-top:14px;min-height:96px;font-family:var(--mono);font-size:11.5px" placeholder="JSON backup"></textarea>
     <div class="err" id="io_err"></div>
-    <div class="hint">Everything lives in this browser's localStorage. Clearing site data wipes it, and nothing leaves this machine.</div>
   </div>
 </div>
 
@@ -836,15 +817,14 @@ function renderAccount(){
   const cap0 = a.start + d.flows;
   $("acctSummary").innerHTML = esc(a.name) + VBAR + fmt$(d.value) + VBAR + fmt$(d.bp) + " free";
   let tiles =
-    metric("Account value", fmt$(d.value), "started " + fmt$(a.start) + (Math.abs(d.flows)>EPS ? ", net deposits " + sgn$(d.flows) : "")) +
-    metric("Closed P/L", sgn$(d.real), spct(cap0>0 ? d.real/cap0 : null) + " on capital put in", cls(d.real)) +
-    metric("Buying power", fmt$(d.bp), pct(d.value>0 ? d.bp/d.value : null, 1) + " of value free", d.bp<-EPS ? "neg" : "gold") +
-    metric("Shares at cost", fmt$(d.cost), d.nHold ? plural(d.nHold,"holding") : "none held") +
-    metric("Put collateral", fmt$(d.coll), d.nPutC ? plural(d.nPutC,"short put contract") : "no short puts open");
+    metric("Account value", fmt$(d.value), Math.abs(d.flows)>EPS ? "deposits " + sgn$(d.flows) : "") +
+    metric("Closed P/L", sgn$(d.real), spct(cap0>0 ? d.real/cap0 : null), cls(d.real)) +
+    metric("Buying power", fmt$(d.bp), pct(d.value>0 ? d.bp/d.value : null, 1) + " free", d.bp<-EPS ? "neg" : "gold") +
+    metric("Shares at cost", fmt$(d.cost), d.nHold ? plural(d.nHold,"holding") : "") +
+    metric("Put collateral", fmt$(d.coll), d.nPutC ? plural(d.nPutC,"contract") : "");
   if(d.nHold){
     tiles += metric("Value at marks", d.marked ? fmt$(d.value + d.unreal) : "—",
-      d.marked ? "shares " + sgn$(d.unreal) + " vs cost" + (d.unmarked ? ", " + d.unmarked + " unmarked" : "")
-               : "enter a last price on a position");
+      d.marked ? sgn$(d.unreal) + " vs cost" + (d.unmarked ? ", " + d.unmarked + " unmarked" : "") : "");
   }
   $("acctStats").innerHTML = tiles;
 
@@ -994,8 +974,7 @@ function capFlag(a, d, sym, add){
   if(!isFinite(limit) || !sym) return "";
   const held = exposure(d, sym), after = held + add;
   if(after <= limit + EPS) return "";
-  return '<div class="flag amber">Takes ' + esc(sym) + " to " + fmt$(after) + ", " + pct(after/d.value,0) + " of the account &mdash; over your " +
-    a.maxAlloc + "% cap of " + fmt$(limit) + (held>EPS ? " (" + fmt$(held) + " already in it)" : "") + ". Recorded if you go ahead.</div>";
+  return '<div class="flag amber">' + esc(sym) + " &rarr; " + fmt$(after) + " (" + pct(after/d.value,0) + "), over the " + a.maxAlloc + "% cap.</div>";
 }
 
 // Always exactly EXP_N choices. A saved expiry that has fallen off the front of the list — last
@@ -1013,20 +992,20 @@ const bandFloor = last => last>0 ? last*(1 - (root.band||0)/100) : null;
 function renderSelTable(){
   const cands = root.cands;
   if(!cands.length){
-    $("selTbl").innerHTML = '<tr><td class="muted" style="border:0;padding-left:0">No puts listed. Import a CSV of tickers and prices, or add rows by hand &mdash; symbol, strike, the credit you expect, and the Friday.</td></tr>';
+    $("selTbl").innerHTML = '<tr><td class="muted" style="border:0;padding-left:0">No puts listed.</td></tr>';
     selCompute(); return;
   }
   $("selTbl").innerHTML =
-    '<tr><th>Symbol</th><th class="num">Last</th><th>Strike</th><th>Credit</th><th>Expiry</th><th title="Most contracts you would sell of this one, per account">Max qty</th>' +
-    '<th class="num">Collateral</th><th class="num" title="Credit less the active account\'s fee per contract">Net / contract</th><th class="num">Weekly</th><th class="num">Annualized</th><th>Picks</th><th></th></tr>' +
+    '<tr><th class="t">Symbol</th><th class="num last">Last</th><th class="t">Strike</th><th class="t">Credit</th><th class="t">Expiry</th><th class="t" title="Per account">Max</th>' +
+    '<th class="num g">Collateral</th><th class="num t" title="Active account\'s fee">Net</th><th class="num g">Weekly</th><th class="num g">Annualized</th><th>Picks</th><th class="t"></th></tr>' +
     cands.map((c,i)=>{
       const fl = bandFloor(c.last);
-      return '<tr><td class="sym"><input value="'+esc(c.sym||"")+'" oninput="candSet('+i+',\'sym\',this.value)" placeholder="xyz"></td>' +
-      '<td class="num" title="'+(fl ? "Band: " + fmtP(fl) + " to " + fmtP(c.last) : "")+'">'+(c.last>0 ? fmtP(c.last) : '<span class="muted">—</span>')+'</td>' +
-      '<td><input type="number" step="any" value="'+esc(c.strike==null?"":c.strike)+'" oninput="candSet('+i+',\'strike\',this.value)" placeholder="'+(fl ? "≥ " + fl.toFixed(2) : "40")+'"></td>' +
-      '<td><input type="number" step="any" value="'+esc(c.credit==null?"":c.credit)+'" oninput="candSet('+i+',\'credit\',this.value)" placeholder="0.40"></td>' +
-      '<td><select oninput="candSet('+i+',\'exp\',this.value)">'+expOptions(c.exp)+'</select></td>' +
-      '<td><input type="number" step="1" min="1" value="'+esc(c.max)+'" oninput="candSet('+i+',\'max\',this.value)" style="min-width:54px;width:64px"></td>' +
+      return '<tr><td class="sym t"><input value="'+esc(c.sym||"")+'" oninput="candSet('+i+',\'sym\',this.value)" placeholder="xyz"></td>' +
+      '<td class="num last" title="'+(fl ? "Band " + fmtP(fl) + "–" + fmtP(c.last) : "")+'">'+(c.last>0 ? fmtP(c.last) : '<span class="muted">—</span>')+'</td>' +
+      '<td class="k t"><input type="number" step="any" value="'+esc(c.strike==null?"":c.strike)+'" oninput="candSet('+i+',\'strike\',this.value)" placeholder="'+(fl ? "≥" + fl.toFixed(2) : "40")+'"></td>' +
+      '<td class="cr t"><input type="number" step="any" value="'+esc(c.credit==null?"":c.credit)+'" oninput="candSet('+i+',\'credit\',this.value)" placeholder="0.40"></td>' +
+      '<td class="ex t"><select oninput="candSet('+i+',\'exp\',this.value)">'+expOptions(c.exp)+'</select></td>' +
+      '<td class="mx t"><input type="number" step="1" min="1" value="'+esc(c.max)+'" oninput="candSet('+i+',\'max\',this.value)"></td>' +
       '<td class="num" id="cc_coll_'+i+'"></td><td class="num" id="cc_net_'+i+'"></td><td class="num" id="cc_wk_'+i+'"></td>' +
       '<td class="num" id="cc_ann_'+i+'"></td><td id="cc_st_'+i+'"></td>' +
       '<td class="num"><button class="x" title="Remove" onclick="delCand('+i+')">&#10005;</button></td></tr>';
@@ -1105,10 +1084,8 @@ window.setCap = (id, v) => {
 };
 function selFor(a){
   const d = deriveAcct(a), bp = Math.max(0, d.bp), cap = candCap(a, d), many = root.order.length > 1;
-  const capNoteTxt = a.capital==null
-    ? "blank uses all free buying power, " + fmt$(bp)
-    : (a.capital > bp + EPS ? '<span style="color:var(--amber)">more than the ' + fmt$(bp) + ' free &mdash; flagged, not stopped</span>'
-                            : "holding back " + fmt$(bp - a.capital) + " of " + fmt$(bp) + " free");
+  const capNoteTxt = a.capital==null ? fmt$(bp) + " free"
+    : (a.capital > bp + EPS ? '<span style="color:var(--amber)">over the ' + fmt$(bp) + ' free</span>' : "of " + fmt$(bp) + " free");
   const head = '<div class="row" style="margin:16px 0 0;align-items:center">' +
     (many ? '<span class="head" style="margin:0' + (a.id===root.active ? ";color:var(--blue)" : "") + '">' + esc(a.name) + '</span>' : "") +
     '<label for="cap_' + a.id + '" style="margin:0">Capital to deploy</label>' +
@@ -1119,30 +1096,17 @@ function selFor(a){
   const elig = rows.filter(r=>r.ok);
   const oneExpAll = elig.every(r=>r.exp===(elig[0]||{}).exp);
   const k = elig.length ? knapsack(elig.map(r=>({coll:r.coll, net:r.net, v:r.val, max:r.max, key:r.key, room:r.room})), cap, oneExpAll) : {cnt:[], approx:false};
-  // Name every symbol the cap touched, and how: shut out entirely, or held below the contracts asked for.
+  // "At cap" already shows on the row. The one cap effect a chip can't show is a symbol whose rows
+  // each fit but not together, so only that is named here.
   let capNote = "";
   if(isFinite(limit)){
-    const bits = [], bySym = {};
-    rows.forEach(r=>{ if(r.c.sym && r.why!=="incomplete") (bySym[r.c.sym] = bySym[r.c.sym] || []).push(r); });
+    const held = [], bySym = {};
+    rows.forEach(r=>{ if(r.c.sym && r.ok) (bySym[r.c.sym] = bySym[r.c.sym] || []).push(r); });
     Object.keys(bySym).forEach(sym=>{
-      const rs = bySym[sym], r0 = rs[0], ok = rs.filter(r=>r.ok);
-      // Shut out: no row on this symbol fits even one contract. Say whether that's what is already
-      // held or the contract itself being bigger than the cap.
-      if(!ok.length && rs.some(r=>r.why==="at cap")){
-        const smallest = Math.min.apply(null, rs.filter(r=>r.why==="at cap").map(r=>r.coll));
-        bits.push(esc(sym) + " is out &mdash; " + (r0.held>EPS
-          ? fmt$(r0.held) + " already in it, " + pct(d.value>0 ? r0.held/d.value : null,0) + " of the account"
-          : "one contract is " + fmt$(smallest) + ", over the cap on its own"));
-        return;
-      }
-      // Held back: everything asked for on this symbol would not fit in its room together.
-      const asked = ok.reduce((s,r)=>s + r.coll*r.max, 0);
-      if(ok.length && asked > r0.room + 1e-6)
-        bits.push(esc(sym) + " held to " + fmt$(r0.room) + " more" + (r0.held>EPS ? " on top of " + fmt$(r0.held) + " held" : "") +
-          " &mdash; " + fmt$(asked) + " was asked for");
+      const rs = bySym[sym];
+      if(rs.reduce((s,r)=>s + r.coll*r.max, 0) > rs[0].room + 1e-6) held.push(esc(sym));
     });
-    capNote = '<div class="calsub calrule">Cap per symbol: <b>' + fmt$(limit) + "</b>, " + a.maxAlloc + "% of the account." +
-      (bits.length ? " " + bits.join("; ") + "." : " No row came near it.") + "</div>";
+    capNote = '<div class="calsub calrule">Cap ' + fmt$(limit) + " (" + a.maxAlloc + "%)" + (held.length ? VBAR + "limited: " + held.join(", ") : "") + "</div>";
   }
   const take = {};
   elig.forEach((r,j)=>{ if(k.cnt[j]) take[r.i] = k.cnt[j]; });
@@ -1155,13 +1119,8 @@ function selFor(a){
     .sort((x,y)=> (y.r.wk - x.r.wk) || (y.r.net - x.r.net));
   lastPicks[a.id] = picks;
   const result = html => ({a, rows, take, picks, html: head + html});
-  if(!picks.length){
-    const why = rows.filter(r=>!r.ok && r.why!=="incomplete");
-    return result('<div class="calbox"><div class="calans" style="color:var(--amber)">Nothing to sell</div><div class="calsub">' +
-      (cap < 100 ? "There is no capital to put up &mdash; " + fmt$(cap) + " free."
-       : why.length ? "Every complete row is out: " + why.map(r=>esc(r.c.sym||"?")+" "+esc(r.why)).join(", ") + "."
-       : "Fill in strike, credit and expiry on at least one row.") + '</div>' + capNote + '</div>');
-  }
+  if(!picks.length)
+    return result('<div class="calbox"><div class="calans" style="color:var(--amber)">Nothing to sell</div>' + capNote + '</div>');
   let used = 0, gross = 0, fees = 0, val = 0;
   picks.forEach(x=>{ used += x.r.coll*x.n; gross += x.r.credit*100*x.n; fees += a.fee*x.n; val += x.r.val*x.n; });
   const net = gross - fees, cash = used - net, left = cap - cash;
@@ -1173,14 +1132,13 @@ function selFor(a){
   if(best && !(picks.length===1 && picks[0].n===1)){
     const allSame = elig.every(r=>r.exp===best.exp) && oneExp;
     const gain = allSame ? net - best.net : val - best.val;
-    if(gain > EPS) vs = '<div class="calsub">Beats the best single contract &mdash; ' + esc(best.c.sym||"?") + " " + fmtP(best.strike) +
-      " put for " + fmt$(best.net) + " net &mdash; by <b>" + fmt$(gain) + "</b>" + (allSame ? "" : " a week") + ".</div>";
+    if(gain > EPS) vs = VBAR + "<b>" + sgn$(gain) + "</b> vs best single (" + esc(best.c.sym||"?") + ")";
   }
   const lines = picks.map((x,i)=>{
     const r = x.r;
     return '<div class="pick"><span class="muted" style="font-family:var(--mono);min-width:16px">' + (i+1) + '.</span><span class="w">' + x.n + "&times; " + esc(r.c.sym||"?") + " <b>" + fmtP(r.strike) + "</b> put " + fmtD(r.exp) +
-      " @ " + fmtP(r.credit) + '</span><span class="muted">' + fmt$(r.coll*x.n) + " collateral" + VBAR + fmt$(r.net*x.n) + " net" + VBAR +
-      pct(r.wk) + " a week</span>" + '<button class="small" style="margin-left:auto" onclick="pickToForm(' + q(a.id) + ',' + i + ')">Sell</button></div>';
+      " @ " + fmtP(r.credit) + '</span><span class="muted">' + fmt$(r.coll*x.n) + VBAR + fmt$(r.net*x.n) + " net" + VBAR +
+      pct(r.wk) + "/wk</span>" + '<button class="small" style="margin-left:auto" onclick="pickToForm(' + q(a.id) + ',' + i + ')">Sell</button></div>';
   }).join("");
   // Returns are stated on the whole capital figure, because that is what is being maximized: an idle
   // dollar earns nothing and has to count against the week.
@@ -1188,18 +1146,12 @@ function selFor(a){
   const wkAcct = wkOn(d.value), wkCap = wkOn(cap);
   const nextMax = Math.floor((left - a.fee)/100*100)/100;
   return result('<div class="calbox"><div class="calans">Sell ' + plural(picks.reduce((s,x)=>s+x.n,0),"contract") + " for " + fmt$(net) + " net</div>" +
-    '<div class="calsub"><b>' + pct(wkAcct) + "</b> a week on the " + fmt$(d.value) + " account" + VBAR + "<b>" + pct(wkAcct*365/7,1) + "</b> annualized, simple." +
-    (Math.abs(cap - d.value) > EPS ? " On the " + fmt$(cap) + " put to work: " + pct(wkCap) + " a week." : "") + " " +
-    fmt$(gross) + " credit less " + fmt$(fees) + " fees.</div>" +
-    '<div class="calsub">' + fmt$(used) + " of collateral" + (used > cap + EPS
-      ? ": " + fmt$(cap) + " of your cash and <b>" + fmt$(used - cap) + "</b> covered by the credit as it comes in."
-      : ", " + fmt$(cash) + " of your cash once the credit lands.") + "</div>" + vs +
-    '<div class="calrule">' + (picks.length > 1 ? '<div class="muted" style="margin-bottom:2px">Sell in this order &mdash; best return on collateral first. ' +
-      'A better fill than expected re-runs the list on what is left.</div>' : "") + lines + "</div>" +
-    '<div class="calsub calrule">Leaves ' + fmt$(left) + (nextMax >= 1 ? " &mdash; room for one more put up to " + fmtP(nextMax) + " strike plus its credit." : ".") +
-    (oneExp ? "" : " Expiries differ, so the picks are ranked on credit per week.") +
-    (k.approx ? " Capital is large next to the strike steps, so collateral was rounded up to a coarser unit; the mix may leave a little on the table." : "") +
-    "</div>" + capNote + "</div>");
+    '<div class="calsub"><b>' + pct(wkAcct) + "</b>/wk on account" + VBAR + "<b>" + pct(wkAcct*365/7,1) + "</b> ann." +
+    (Math.abs(cap - d.value) > EPS ? VBAR + pct(wkCap) + "/wk on capital" : "") + vs + "</div>" +
+    '<div class="calsub">' + fmt$(used) + " collateral" + (used > cap + EPS ? " (" + fmt$(used - cap) + " from credit)" : "") +
+    VBAR + fmt$(gross) + " &minus; " + fmt$(fees) + " fees" + VBAR + "leaves " + fmt$(left) +
+    (nextMax >= 1 ? " (&le; " + fmtP(nextMax) + " strike)" : "") + (oneExp ? "" : VBAR + "per week") + (k.approx ? VBAR + "approx." : "") + "</div>" +
+    '<div class="calrule">' + lines + "</div>" + capNote + "</div>");
 }
 // Sell from an account's picks: switch to that account first, since the sale is recorded there.
 window.pickToForm = (aid, i) => {
@@ -1262,8 +1214,7 @@ function importCSV(text, name){
   // bottom of the band.
   const accts = root.order.map(id=>{ const a = root.accounts[id], d = deriveAcct(a); return {a, d, cap:candCap(a, d), limit:symCap(a, d)}; });
   const roomFor = (x, sym) => Math.min(x.cap, Math.max(0, x.limit - exposure(x.d, sym)));
-  let added = 0, updated = 0;
-  const dropped = [];
+  let added = 0, updated = 0, dropped = 0;
   found.forEach((price, sym)=>{
     const listed = root.cands.filter(c=>c.sym===sym);
     const need = bandFloor(price)*100;
@@ -1274,21 +1225,18 @@ function importCSV(text, name){
       // A re-import re-checks size too, but only takes out rows you haven't filled in yet.
       if(tooBig && listed.some(unfilledCand)){
         root.cands = root.cands.filter(c=>!(c.sym===sym && unfilledCand(c)));
-        dropped.push({sym, price, need, best});
+        dropped++;
         if(root.cands.some(c=>c.sym===sym)) updated++;
       } else updated++;
       return;
     }
-    if(tooBig){ dropped.push({sym, price, need, best}); return; }
+    if(tooBig){ dropped++; return; }
     root.cands.push(newCand(sym, price)); added++;
   });
   save(); renderSelTable();
 
-  const list = (arr, f) => arr.slice(0,12).map(f).join(", ") + (arr.length > 12 ? ", and " + (arr.length - 12) + " more" : "");
-  box.innerHTML = '<div class="okmsg">' + esc(name||"CSV") + ": " + plural(found.size,"ticker") + " &mdash; added " + added +
-    (updated ? ", " + updated + " already listed (price updated)" : "") + (dropped.length ? ", " + dropped.length + " left out" : "") + ".</div>" +
-    (dropped.length ? '<div class="flag mut">Left out &mdash; one contract at ' + root.band + "% under the price is more than any account can put into the symbol: " +
-      list(dropped, x=>esc(x.sym) + " " + fmtP(x.price) + " (" + fmt$(x.need) + " vs " + fmt$(x.best) + ")") + ".</div>" : "");
+  box.innerHTML = '<div class="okmsg">' + found.size + " tickers" + VBAR + added + " added" + (updated ? VBAR + updated + " updated" : "") +
+    (dropped ? VBAR + dropped + " too big" : "") + "</div>";
 }
 
 /* ---------------- 03 · Sell a Put ---------------- */
@@ -1319,23 +1267,22 @@ function updateNP(){
   if(!(f.strike>0 && f.qty>=1 && f.credit>0 && f.exp)){ box.innerHTML = ""; return; }
   const coll = f.strike*100*f.qty, net = f.credit*100*f.qty - f.fees, days = daysBetween(f.date, f.exp);
   const roc = net/coll, wk = weekly(roc, days), ann = annual(roc, days);
-  let h = '<div class="calbox"><div class="calans">Collect ' + fmt$(net) + " on " + fmt$(coll) + " collateral</div>" +
-    '<div class="calsub"><b>' + pct(roc) + "</b> on the cash over " + plural(Math.max(0,days),"day") + VBAR + "<b>" + pct(wk) +
-    "</b> a week" + VBAR + "<b>" + pct(ann,1) + "</b> annualized, simple.</div>";
+  let h = '<div class="calbox"><div class="calans">' + fmt$(net) + " on " + fmt$(coll) + "</div>" +
+    '<div class="calsub"><b>' + pct(roc) + "</b>" + VBAR + "<b>" + pct(wk) + "</b>/wk" + VBAR + "<b>" + pct(ann,1) + "</b> ann.</div>";
   const into = f.into ? a.positions.find(p=>p.id===f.into) : null;
   if(into){
     const s = simulate(into, c=>{
       addLeg(c, {type:"put", side:"short", strike:f.strike, exp:f.exp, qty:f.qty, date:f.date, price:f.credit, fees:f.fees});
       return closeLeg(c, c.legs[c.legs.length-1].id, {how:"assigned", date:f.exp < f.date ? f.date : f.exp, qty:f.qty, fees:0});
     });
-    if(!s.err) h += '<div class="calsub">If assigned: ' + fmtQ(s.sh) + " shares, basis <b>" + fmtP(s.adj) + "</b>" +
-      (derivePos(into).adj!=null ? " (from " + fmtP(derivePos(into).adj) + ")" : "") + ".</div>";
+    if(!s.err) h += '<div class="calsub">If assigned: ' + fmtQ(s.sh) + " sh, basis <b>" + fmtP(s.adj) + "</b>" +
+      (derivePos(into).adj!=null ? " (from " + fmtP(derivePos(into).adj) + ")" : "") + "</div>";
   }
-  h += '<div class="calsub calrule">Buying power ' + fmt$(d.bp) + " &rarr; " + fmt$(d.bp - coll + net) + " once sold, the credit counted toward collateral.</div></div>";
-  if(coll - net > d.bp + EPS) h += '<div class="flag red">Even with the credit, that is ' + fmt$(coll - net - d.bp) + " more collateral than you have free. Your call &mdash; nothing here stops you.</div>";
+  h += '<div class="calsub calrule">BP ' + fmt$(d.bp) + " &rarr; " + fmt$(d.bp - coll + net) + "</div></div>";
+  if(coll - net > d.bp + EPS) h += '<div class="flag red">' + fmt$(coll - net - d.bp) + " over free BP.</div>";
   h += capFlag(a, d, f.sym, coll);
-  if(days < 0) h += '<div class="flag red">Expiry is before the sale date.</div>';
-  else if(!isFriday(f.exp)) h += '<div class="flag mut">Expiry isn\'t a Friday &mdash; fine for a holiday week, worth a second look otherwise.</div>';
+  if(days < 0) h += '<div class="flag red">Expiry before sale date.</div>';
+  else if(!isFriday(f.exp)) h += '<div class="flag mut">Not a Friday.</div>';
   box.innerHTML = h;
 }
 function recordNP(){
@@ -1415,20 +1362,10 @@ function closeNote(a, d, L){
   if(!plan.length) return "";
   const c = plan[0], head = fmtP(L.strike) + " " + L.type;
   const wd = s => new Date(dnum(s)*864e5).toLocaleDateString(undefined,{weekday:"short",timeZone:"UTC"});
-  const sched = plan.length > 1 ? ' <span class="muted">' + plan.map(x=>wd(x.date) + " " + (x.hold ? "hold" : fmtP(x.price))).join(" &middot; ") +
-    " &mdash; lower the order each morning.</span>" : "";
-  if(c.hold){
-    const why = c.h<=0 ? "set a target weekly return in section 01 to get one"
-      : c.left<=0 ? "it expires today"
-      : "no price from here banks " + pct(c.h,2) + " a week for the sessions held &mdash; holding to expiry is the better use of the cash";
-    return '<div class="sub2">' + head + ": <b>hold</b> &mdash; " + why + "." + sched + "</div>";
-  }
-  const ahead = Math.round(c.captured*100) + "% of the " + fmtP(c.C) + " credit with " + Math.round(c.elapsed*100) + "% of the " + plural(c.T,"session") + " gone";
-  const why = c.rule==="remaining"
-    ? "At that price, the premium still to come earns less than your " + pct(c.h,2) + " a week on the " + fmt$(c.K*100*L.qty) +
-      (L.type==="put" ? " it ties up" : " of shares it covers, at basis") + ", so closing and selling again pays better."
-    : "Held to expiry this credit pays " + pct(c.rho,2) + " a week, under your " + pct(c.h,2) + ", so the target is the price that still banks " + pct(c.h,2) + " a week for the sessions held.";
-  return '<div class="sub2">' + head + ": buy back at <b>" + fmtP(c.price) + "</b> or less today &mdash; " + ahead + ". " + why + sched + "</div>";
+  const sched = plan.length > 1 ? ' <span class="muted">' + plan.map(x=>wd(x.date) + " " + (x.hold ? "hold" : fmtP(x.price))).join(" &middot; ") + "</span>" : "";
+  if(c.hold) return '<div class="sub2">' + head + ": <b>hold</b>" + (c.h<=0 ? " (no target set)" : "") + sched + "</div>";
+  return '<div class="sub2">' + head + ": close &le; <b>" + fmtP(c.price) + "</b> " +
+    '<span class="muted">' + Math.round(c.captured*100) + "% / " + Math.round(c.elapsed*100) + "% time" + (c.rule==="floor" ? ", floor" : "") + "</span>" + VBAR + sched + "</div>";
 }
 
 function statusPills(d){
@@ -1450,9 +1387,8 @@ function historyTable(p, d, canUndo){
         '</td><td class="num '+(r.pl!=null ? cls(r.pl) : "")+'">'+(r.pl!=null ? sgn$(r.pl) : "")+'</td><td class="num">'+undo+'</td></tr>';
     }).join("") +
     (p.carry ? '<tr><td class="nw">'+fmtD(p.carryDate||d.first)+'</td><td class="muted">Put carried in' +
-      (p.carryParts && p.carryParts.con ? ": " + p.carryParts.con + " &times; " + fmtP(p.carryParts.cr) + " credit, " + fmtP(p.carryParts.db) +
-        " buyback, " + fmt$(p.carryParts.of) + " fees" : "") +
-      " &mdash; " + (p.carryIn===false ? "in the basis and account P/L" : "in the basis; already in the starting value") +
+      (p.carryParts && p.carryParts.con ? ": " + p.carryParts.con + " &times; " + fmtP(p.carryParts.cr) + " cr, " + fmtP(p.carryParts.db) + " db" : "") +
+      (p.carryIn===false ? "" : " (basis only)") +
       '</td><td></td><td class="num">'+(p.carryParts && p.carryParts.of ? fmt$(p.carryParts.of) : "")+'</td><td></td><td class="num '+cls(p.carry)+'">'+sgn$(p.carry)+'</td><td></td></tr>' : "") +
     "</table>";
 }
@@ -1471,27 +1407,25 @@ function posCard(p, d, A){
 
   const fp = d.fp;
   let h = head + '<div class="statrow">' +
-    metric("Shares", d.sh ? fmtQ(d.sh) : "0", d.sh ? "avg cost " + fmtP(d.avg) : "none held yet") +
+    metric("Shares", d.sh ? fmtQ(d.sh) : "0", d.sh ? "avg " + fmtP(d.avg) : "") +
     metric("Adjusted basis", d.adj!=null ? fmtP(d.adj) : "—",
-      d.adj!=null ? (d.avg - d.adj > 0 ? fmtP(d.avg - d.adj) + "/sh off cost (" + pct((d.avg-d.adj)/d.avg,1) + ")" : "at or above cost") : "set when shares arrive", "gold") +
-    metric("Premium banked", sgn$(d.rOpt + d.carry), "closed option legs, net of fees" + (d.carry ? ", incl. carried in" : ""), cls(d.rOpt + d.carry)) +
-    metric("Position P/L", sgn$(d.total), d.rSh ? "shares " + sgn$(d.rSh) + " of it" : "closed legs only", cls(d.total)) +
+      d.adj!=null && d.avg - d.adj > 0 ? "&minus;" + fmtP(d.avg - d.adj) + " (" + pct((d.avg-d.adj)/d.avg,1) + ")" : "", "gold") +
+    metric("Premium banked", sgn$(d.rOpt + d.carry), d.carry ? "incl. carried in" : "", cls(d.rOpt + d.carry)) +
+    metric("Position P/L", sgn$(d.total), d.rSh ? "shares " + sgn$(d.rSh) : "", cls(d.total)) +
     metric("Capital at work", fmt$(d.capNow), "peak " + fmt$(d.peak)) +
-    metric("ROE" + VBAR + "annualized", spct(d.roe) + VBAR + pct(d.ann,1), "P/L on peak capital, " + plural(d.days,"day")) +
+    metric("ROE" + VBAR + "annualized", spct(d.roe) + VBAR + pct(d.ann,1), plural(d.days,"day")) +
     (fp ? metric("First put" + VBAR + "annualized", pct(fp.roe) + VBAR + pct(fp.ann,1),
-      fmtP(fp.L.strike) + " &times;" + fp.qty + ", " + (fp.open ? "if it expires" : fp.hows.join(", ") + " in " + plural(fp.days,"day"))) : "") +
+      fmtP(fp.L.strike) + " &times;" + fp.qty + (fp.open ? ", open" : ", " + fp.hows.join(", "))) : "") +
     '</div>';
 
   if(d.sh){
     const m = p.mark>0 ? p.mark : null;
     h += '<div class="marks"><div style="display:flex;align-items:center;gap:8px"><label for="mk_'+p.id+'" style="margin:0">Last price</label>' +
       '<input id="mk_'+p.id+'" type="number" step="any" value="'+(m||"")+'" placeholder="mark" onchange="setMark('+q(p.id)+',this.value)"></div>' +
-      (m ? '<span class="muted">Shares vs cost <b class="'+cls((m-d.avg)*d.sh)+'" style="font-family:var(--mono)">'+sgn$((m-d.avg)*d.sh)+'</b> ('+spct((m-d.avg)/d.avg,1)+')' +
-           VBAR + 'whole position vs basis <b class="'+cls((m-d.adj)*d.sh)+'" style="font-family:var(--mono)">'+sgn$((m-d.adj)*d.sh)+'</b>' +
-           ' ('+spct(d.peak>0 ? (m-d.adj)*d.sh/d.peak : null,1)+' on peak capital)</span>'
-         : '<span class="muted">Enter a price to see the shares against cost and the whole position against basis.</span>') +
+      (m ? '<span class="muted">vs cost <b class="'+cls((m-d.avg)*d.sh)+'" style="font-family:var(--mono)">'+sgn$((m-d.avg)*d.sh)+'</b> ('+spct((m-d.avg)/d.avg,1)+')' +
+           VBAR + 'vs basis <b class="'+cls((m-d.adj)*d.sh)+'" style="font-family:var(--mono)">'+sgn$((m-d.adj)*d.sh)+'</b>' +
+           ' ('+spct(d.peak>0 ? (m-d.adj)*d.sh/d.peak : null,1)+')</span>' : "") +
       '</div>';
-    h += '<div class="sub2">Break-even is the basis, <b>' + fmtP(d.adj) + '</b> &mdash; sell above it and the position, premium included, is ahead.</div>';
   }
 
   // What each open short would do to the position if it ran to assignment.
@@ -1500,11 +1434,11 @@ function posCard(p, d, A){
     if(s.err) return;
     if(L.type==="call"){
       const gain = s.total - d.total;
-      h += '<div class="sub2">If the ' + fmtP(L.strike) + " call is assigned: " + fmtQ(100*L.qty) + " shares go at " + fmtP(L.strike) +
-        " and the position banks <b>" + sgn$(gain) + "</b> more" + (s.flat ? ", closing at <b>" + sgn$(s.total) + "</b> total (" + pct(s.roe) + " on peak capital)." : ".") + "</div>";
+      h += '<div class="sub2">' + fmtP(L.strike) + " call assigned: <b>" + sgn$(gain) + "</b>" +
+        (s.flat ? (Math.abs(d.total) > EPS ? " &rarr; " + sgn$(s.total) + " total" : "") + " (" + pct(s.roe) + ")" : "") + "</div>";
     } else {
-      h += '<div class="sub2">If the ' + fmtP(L.strike) + " put is assigned: " + fmtQ(s.sh) + " shares at a basis of <b>" + fmtP(s.adj) + "</b>" +
-        (d.adj!=null ? ", from " + fmtP(d.adj) : ", " + fmtP(L.strike - s.adj) + " under the strike") + ".</div>";
+      h += '<div class="sub2">' + fmtP(L.strike) + " put assigned: " + fmtQ(s.sh) + " sh, basis <b>" + fmtP(s.adj) + "</b>" +
+        (d.adj!=null ? " (from " + fmtP(d.adj) + ")" : "") + "</div>";
     }
   });
 
@@ -1551,7 +1485,7 @@ function renderOpen(){
     : "";
   $("body_open").innerHTML = list.length
     ? list.map(x=>posCard(x.p, x.d, d)).join("")
-    : '<div class="card muted">Nothing open. Sell a put in section 03 and it appears here.</div>';
+    : '<div class="card muted">Nothing open.</div>';
 }
 window.togglePos = pid => { const p = findPos(pid); p.shut = !p.shut; save(); renderOpen(); };
 window.setAllPos = shut => {
@@ -1666,22 +1600,20 @@ window.posAction = (pid, kind) => {
     let h = "";
     if(kind==="sellcall"){
       const days = daysBetween(f.date, f.exp), net = f.price*100*f.qty - f.fees, base = (d.adj||d.avg||f.strike)*100*f.qty;
-      h += '<div class="flag mut">' + fmt$(net) + " net &mdash; " + pct(net/base) + " on the shares' basis, " + pct(annual(net/base, days),1) + " annualized." +
-        (d.adj!=null ? (f.strike < d.adj ? ' <span style="color:var(--amber)">Strike is under your basis of ' + fmtP(d.adj) + " &mdash; assignment there locks in a loss.</span>"
-                                         : " Assigned at " + fmtP(f.strike) + ", the shares clear basis by " + fmtP(f.strike - d.adj) + ".") : "") + "</div>";
-      if(100*f.qty > uncovered) h += '<div class="flag amber">Covers ' + fmtQ(Math.max(0,uncovered)) + " uncovered shares &mdash; " +
-        plural(f.qty - Math.max(0,Math.floor(uncovered/100)),"contract") + " would be naked. Recorded if you go ahead.</div>";
+      h += '<div class="flag mut">' + fmt$(net) + " net" + VBAR + pct(net/base) + " on basis" + VBAR + pct(annual(net/base, days),1) + " ann." +
+        (d.adj!=null && f.strike < d.adj ? ' <span style="color:var(--amber)">Strike under basis ' + fmtP(d.adj) + ".</span>" : "") + "</div>";
+      if(100*f.qty > uncovered) h += '<div class="flag amber">' + plural(f.qty - Math.max(0,Math.floor(uncovered/100)),"contract") + " uncovered.</div>";
     } else if(kind==="sellput"){
       const ad = acct(), dd = deriveAcct(ad), coll = f.strike*100*f.qty, net = f.price*100*f.qty - f.fees;
-      h += '<div class="flag mut">' + fmt$(coll) + " collateral less " + fmt$(net) + " credit; buying power " + fmt$(dd.bp) + " &rarr; " + fmt$(dd.bp - coll + net) + ".</div>";
-      if(coll - net > dd.bp + EPS) h += '<div class="flag red">Even with the credit, that is ' + fmt$(coll - net - dd.bp) + " more than you have free. Your call.</div>";
+      h += '<div class="flag mut">BP ' + fmt$(dd.bp) + " &rarr; " + fmt$(dd.bp - coll + net) + "</div>";
+      if(coll - net > dd.bp + EPS) h += '<div class="flag red">' + fmt$(coll - net - dd.bp) + " over free BP.</div>";
       h += capFlag(ad, dd, p.sym, coll);
     } else if(kind==="buysh"){
-      h += '<div class="flag mut">' + fmtQ(s.sh) + " shares, avg cost " + fmtP(s.avg) + ", basis <b class=\"gold\">" + fmtP(s.adj) + "</b>" + (d.adj!=null ? " (from " + fmtP(d.adj) + ")" : "") + ".</div>";
+      h += '<div class="flag mut">' + fmtQ(s.sh) + " sh" + VBAR + "avg " + fmtP(s.avg) + VBAR + "basis <b class=\"gold\">" + fmtP(s.adj) + "</b>" + (d.adj!=null ? " (from " + fmtP(d.adj) + ")" : "") + "</div>";
     } else if(kind==="sellsh"){
-      h += '<div class="flag mut">Realizes <span class="'+cls(s.rSh - d.rSh)+'">' + sgn$(s.rSh - d.rSh) + "</span> against average cost" +
-        (d.adj!=null ? "; against basis the shares sold are " + sgn$((f.price - d.adj)*f.qty - f.fees) : "") + "." +
-        (s.flat ? " Closes the position at " + sgn$(s.total) + "." : "") + "</div>";
+      h += '<div class="flag mut"><span class="'+cls(s.rSh - d.rSh)+'">' + sgn$(s.rSh - d.rSh) + "</span> vs cost" +
+        (d.adj!=null ? VBAR + sgn$((f.price - d.adj)*f.qty - f.fees) + " vs basis" : "") +
+        (s.flat ? VBAR + "closes at " + sgn$(s.total) : "") + "</div>";
     }
     note(h);
   });
@@ -1736,14 +1668,10 @@ window.closeUI = (pid, lid) => {
     const s = simulate(p, c=>closeLeg(c, lid, f));
     if(s.err) return note('<div class="flag red">'+esc(s.err)+'</div>');
     const d = derivePos(p), got = s.rOpt - d.rOpt;
-    let h = '<div class="flag mut">This leg: <b class="'+cls(got)+'">' + sgn$(got) + "</b> net of fees, on " + fmt$(L.strike*100*f.qty) +
-            (L.side==="short" && L.type==="put" ? " collateral" : " notional") + ".";
-    if(f.how==="assigned" && L.type==="put" || f.how==="btcbuy") h += " You hold " + fmtQ(s.sh) + " shares at a basis of <b class=\"gold\">" + fmtP(s.adj) + "</b>" +
-      " against " + fmtP(s.avg) + " paid.";
-    if((f.how==="assigned" && L.type==="call") || f.how==="exercised")
-      h += s.flat ? " Closes the position at <b class=\""+cls(s.total)+"\">" + sgn$(s.total) + "</b>, " + pct(s.roe) + " on peak capital, " + pct(s.ann,1) + " annualized."
-                  : " " + fmtQ(s.sh) + " shares left, basis " + fmtP(s.adj) + ".";
-    else if(s.flat) h += " Closes the position at <b class=\""+cls(s.total)+"\">" + sgn$(s.total) + "</b>.";
+    let h = '<div class="flag mut">Leg <b class="'+cls(got)+'">' + sgn$(got) + "</b>";
+    if(f.how==="assigned" && L.type==="put" || f.how==="btcbuy") h += VBAR + fmtQ(s.sh) + " sh, basis <b class=\"gold\">" + fmtP(s.adj) + "</b>";
+    if(s.flat) h += VBAR + "closes at <b class=\""+cls(s.total)+"\">" + sgn$(s.total) + "</b> (" + pct(s.roe) + ", " + pct(s.ann,1) + " ann.)";
+    else if((f.how==="assigned" && L.type==="call") || f.how==="exercised") h += VBAR + fmtQ(s.sh) + " sh left, basis " + fmtP(s.adj);
     note(h + "</div>");
   });
 };
@@ -1763,8 +1691,8 @@ window.bringIn = () => {
     fld("m_db","Buyback debit per share","number","0.00",'step="any" min="0"') +
     fld("m_of","Fees, sale and buyback","number","0.00",'step="0.01" min="0"') +
     '<div style="grid-column:1/-1"><label for="m_in">Put P/L</label><select id="m_in">' +
-      '<option value="1">Already in my starting value &mdash; basis only</option>' +
-      '<option value="0">Happened since &mdash; add it to account P/L too</option></select></div></div>';
+      '<option value="1">Basis only (before start)</option>' +
+      '<option value="0">Basis + account P/L</option></select></div></div>';
   const read = () => {
     const con = mn("m_con")||0, cr = mn("m_cr")||0, db = mn("m_db")||0, of = mn("m_of")||0;
     return { sym:mv("m_sym").trim().toUpperCase(), qty:mn("m_qty"), price:mn("m_price"), date:mv("m_date")||todayISO(),
@@ -1790,10 +1718,8 @@ window.bringIn = () => {
     const f = read();
     if(!(f.qty>0 && f.price>0)) return note("");
     const adj = (f.qty*f.price - f.net)/f.qty;
-    note('<div class="flag mut">' + (f.con ? "Put: " + fmt$(f.cr*100*f.con) + " credit &minus; " + fmt$(f.db*100*f.con) + " buyback &minus; " + fmt$(f.of) +
-      ' fees = <b class="' + cls(f.net) + '">' + sgn$(f.net) + "</b>" + (f.inStart ? ", in the basis only." : ", in the basis and account P/L.") + " " : "") +
-      "Basis <b class=\"gold\">" + fmtP(adj) + "</b> on " + fmtQ(f.qty) + " shares" + (Math.abs(f.net)>EPS ? ", against " + fmtP(f.price) + " paid" : "") + ".</div>" +
-      (f.inStart ? '<div class="flag mut">Set the starting value to cash plus what these shares cost, so buying power comes out right.</div>' : ""));
+    note('<div class="flag mut">' + (f.con ? 'Put <b class="' + cls(f.net) + '">' + sgn$(f.net) + "</b>" + VBAR : "") +
+      "basis <b class=\"gold\">" + fmtP(adj) + "</b></div>");
   });
 };
 
@@ -1850,11 +1776,11 @@ function renderClosed(){
   });
   $("closedSummary").innerHTML = list.length ? plural(list.length,"position") + VBAR + '<span class="'+cls(pl)+'">' + sgn$(pl) + "</span>" : "";
   $("closedStats").innerHTML = list.length
-    ? metric("Closed", list.length, wins + " won, " + (list.length - wins) + " did not") +
-      metric("Total P/L", sgn$(pl), "net of every fee", cls(pl)) +
-      metric("Option premium", sgn$(prem), "all closed legs, net") +
-      metric("Took shares", assigned ? pct(assigned/list.length,0) : "0%", assigned + " of " + list.length + " went past the put") +
-      metric("Annualized", pct(capDays>0 ? pl*365/capDays : null,1), "capital-weighted, simple")
+    ? metric("Closed", list.length, wins + " won") +
+      metric("Total P/L", sgn$(pl), "", cls(pl)) +
+      metric("Option premium", sgn$(prem), "") +
+      metric("Took shares", assigned ? pct(assigned/list.length,0) : "0%", assigned + " of " + list.length) +
+      metric("Annualized", pct(capDays>0 ? pl*365/capDays : null,1), "")
     : "";
   $("closedTbl").innerHTML = list.length
     ? '<tr><th>Symbol</th><th>Path</th><th>Opened</th><th>Closed</th><th class="num">Days</th><th class="num">P/L</th>' +
@@ -1869,7 +1795,7 @@ function renderClosed(){
         if(expanded[p.id]) r += '<tr class="expand"><td colspan="10"><div class="scroll">' + historyTable(p, dd, true) + '</div></td></tr>';
         return r;
       }).join("")
-    : '<tr><td class="muted" style="border:0;padding-left:0">No closed positions yet. A put that expires or is bought back lands here straight away; an assigned one lands when the last share goes.</td></tr>';
+    : '<tr><td class="muted" style="border:0;padding-left:0">No closed positions.</td></tr>';
   drawEquity(a, d);
 }
 window.toggleClosed = pid => { expanded[pid] = !expanded[pid]; renderClosed(); };
