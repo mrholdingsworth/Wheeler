@@ -275,10 +275,9 @@ details[open] summary::before{content:"\25BE  "}
     <div class="scroll" style="margin-top:12px"><table class="seltbl" id="selTbl"></table></div>
     <div id="selOut"></div>
     <div class="hint">
-      CSV: a symbol column and a price column &mdash; headers like Symbol/Ticker and Price/Last are found on their own,
-      or the first column is taken as the symbol and the first number after it as the price. A ticker is left out
-      when no account could hold one contract at the bottom of the strike band (price less the band), against its
-      free cash and its per-symbol cap. Strike and credit are yours to fill in.
+      CSV: the scanner's watchlist export &mdash; the Symbol and Last columns are read, the title lines above them
+      skipped. A ticker is left out when no account could hold one contract at the bottom of the strike band (price
+      less the band), against its free cash and its per-symbol cap. Strike and credit are yours to fill in.
       <br>Each account's picks are the mix of contracts with the most net credit that fits its capital, fees taken out
       per contract &mdash; the biggest gain for the account as a whole. When expiries differ, each credit is scaled to a
       week so a two-week put has to earn twice as much to compete.
@@ -480,6 +479,10 @@ function normalize(){
     if(Array.isArray(a.cands)) a.cands.forEach(c=>{ if(!have[sig(c)]){ have[sig(c)] = 1; root.cands.push(c); } });
     delete a.cands;
   });
+  // One-time repair: the first CSV importer read the scanner's title lines as tickers. Rows it made
+  // from them are dropped, unless something was typed into them. Safe to delete once no saved list
+  // could still hold one.
+  root.cands = root.cands.filter(c=>!((c.sym==="RESULTS" || c.sym==="SYMBOL") && !(num(c.strike)>0) && !(num(c.credit)>0)));
   root.cands.forEach(c=>{
     if(!c.id) c.id = uid();
     if(!(c.max>=1)) c.max = 1;
@@ -1030,6 +1033,8 @@ function renderSelTable(){
     }).join("");
   selCompute();
 }
+// A row nothing has been typed into yet — fair game for an import to replace or remove.
+const unfilledCand = c => !(num(c.strike)>0) && !(num(c.credit)>0);
 const newCand = (sym, last, exp) => ({id:uid(), sym:sym||"", last:last>0 ? last : null, strike:null, credit:null, exp: exp || nextFriday(), max:1, sold:{}});
 window.addCand = () => {
   const last = root.cands[root.cands.length-1];
@@ -1211,73 +1216,46 @@ window.pickToForm = (aid, i) => {
 };
 
 /* ---- CSV import ----
-   Reads tickers and prices out of whatever a screener or broker exports: comma, semicolon or tab
-   separated, quoted or not, with or without a header row. */
-function parseCSV(text){
-  const lines = String(text).replace(/^﻿/, "").split(/\r\n|\n|\r/).filter(l=>l.trim()!=="");
-  if(!lines.length) return [];
-  const f = lines[0];
-  const delim = f.indexOf("\t")>=0 ? "\t" : (f.split(";").length > f.split(",").length ? ";" : ",");
-  return lines.map(line=>{
-    const out = []; let cur = "", inQ = false;
-    for(let i=0; i<line.length; i++){
-      const ch = line[i];
-      if(inQ){
-        if(ch==='"'){ if(line[i+1]==='"'){ cur += '"'; i++; } else inQ = false; }
-        else cur += ch;
-      }
-      else if(ch==='"') inQ = true;
-      else if(ch===delim){ out.push(cur.trim()); cur = ""; }
-      else cur += ch;
-    }
-    out.push(cur.trim());
-    return out;
-  });
-}
-const csvNum = s => { const n = parseFloat(String(s==null?"":s).replace(/[$,\s]/g, "")); return isFinite(n) ? n : null; };
-const csvSym = s => String(s==null?"":s).trim().toUpperCase().replace(/^\$/, "");
-const TICKER = /^[A-Z][A-Z0-9.\-\/]{0,9}$/;
-// Find the table and its symbol and price columns. Scanner exports often open with title lines
-// ("Watchlist Scanner", "Results") before the header, so the header is searched for in the first
-// rows rather than assumed to be row one. Lines narrower than the table's usual width are titles,
-// not data. With no header at all, the symbol is the first column and the price is the first
-// column after it holding a number.
-const HEAD_SYM = s => /^(symbol|ticker|sym|ticker symbol|underlying)$/.test(s) || /symbol|ticker/.test(s);
-const HEAD_PRICE_EXACT = /^(price|last|last price|close|current|current price|mark|last sale)$/;
-function csvColumns(all){
-  const counts = {};
-  all.forEach(r=>{ if(r.length>=2) counts[r.length] = (counts[r.length]||0) + 1; });
-  const widths = Object.keys(counts).map(Number).sort((x,y)=>counts[y]-counts[x] || y-x);
-  const width = widths[0] || 1;
-  const rows = width>1 ? all.filter(r=>r.length >= Math.min(width, 2) && r.length >= width - 1) : all;
-  if(!rows.length) return {rows:[], sym:0, price:-1};
-  const lower = r => r.map(s=>String(s).toLowerCase());
-  const hi = rows.slice(0, 15).findIndex(r=>lower(r).some(HEAD_SYM));
-  if(hi>=0){
-    const h = lower(rows[hi]);
-    const exact = h.findIndex(s=>HEAD_PRICE_EXACT.test(s));
-    const price = exact>=0 ? exact : h.findIndex(s=>/price|last|close/.test(s));
-    return {rows: rows.slice(hi+1), sym: h.findIndex(HEAD_SYM), price, header:true};
+   Built for the scanner's watchlist export, which is always:
+     Watchlist Scanner
+     (blank)
+     Results
+     Symbol,Description,Last,$VOL,APTR,RS Rating,%Chng 1 M
+     ABBV,ABBVIE INC,265.76,...
+   Everything above the header line is title. Columns are taken by header name, not position, so a
+   column added or moved in the scanner doesn't break the import. */
+// Split one line on commas, honouring quotes, so a company name with a comma in it — if the scanner
+// ever quotes one — can't push Last into the wrong column.
+function splitCSV(line){
+  const out = []; let cur = "", inQ = false;
+  for(const ch of line){
+    if(ch==='"') inQ = !inQ;
+    else if(ch==="," && !inQ){ out.push(cur.trim()); cur = ""; }
+    else cur += ch;
   }
-  const r0 = rows[0], price = r0.findIndex((s,j)=>j>0 && csvNum(s)!=null);
-  return {rows, sym:0, price, header:false};
+  out.push(cur.trim());
+  return out;
 }
-// Header words that look like tickers to the pattern but never are.
-const NOT_TICKERS = {SYMBOL:1, TICKER:1, SYM:1, RESULTS:1, TOTAL:1, TOTALS:1, DESCRIPTION:1, NAME:1, PRICE:1, LAST:1};
+// Ticker → last price, or null if this isn't a scanner export.
+function readScan(text){
+  const lines = String(text).replace(/^﻿/, "").split(/\r?\n/);
+  const cols = l => splitCSV(l).map(s=>s.toLowerCase());
+  const hi = lines.findIndex(l=>{ const h = cols(l); return h.includes("symbol") && h.includes("last"); });
+  if(hi<0) return null;
+  const head = cols(lines[hi]), si = head.indexOf("symbol"), pi = head.indexOf("last");
+  const found = new Map();
+  lines.slice(hi+1).forEach(l=>{
+    if(!l.trim()) return;
+    const c = splitCSV(l), sym = (c[si]||"").toUpperCase(), price = parseFloat(c[pi]);
+    if(sym && price>0 && !found.has(sym)) found.set(sym, price);
+  });
+  return found;
+}
 function importCSV(text, name){
   const box = $("sel_imp");
-  const rows = parseCSV(text);
-  if(!rows.length){ box.innerHTML = '<div class="err">' + esc(name||"That file") + " is empty.</div>"; return; }
-  const col = csvColumns(rows), body = col.rows;
-  // One entry per ticker; a later row only fills in a price the first one lacked.
-  const found = new Map();
-  body.forEach(r=>{
-    const sym = csvSym(r[col.sym]);
-    if(!TICKER.test(sym) || NOT_TICKERS[sym]) return;
-    const price = col.price>=0 ? csvNum(r[col.price]) : null;
-    if(!found.has(sym) || (!(found.get(sym)>0) && price>0)) found.set(sym, price);
-  });
-  if(!found.size){ box.innerHTML = '<div class="err">No tickers found in ' + esc(name||"the file") + " &mdash; nothing was added.</div>"; return; }
+  const found = readScan(text);
+  if(!found){ box.innerHTML = '<div class="err">' + esc(name||"That file") + " isn't a scanner export &mdash; no Symbol &hellip; Last header line. Nothing was added.</div>"; return; }
+  if(!found.size){ box.innerHTML = '<div class="err">' + esc(name||"That file") + " has a header but no tickers under it.</div>"; return; }
 
   // What each account could put into one more symbol: the smaller of its capital to deploy and its
   // room under the per-symbol cap. A ticker stays if any account could hold one contract at the
@@ -1285,27 +1263,22 @@ function importCSV(text, name){
   const accts = root.order.map(id=>{ const a = root.accounts[id], d = deriveAcct(a); return {a, d, cap:candCap(a, d), limit:symCap(a, d)}; });
   const roomFor = (x, sym) => Math.min(x.cap, Math.max(0, x.limit - exposure(x.d, sym)));
   let added = 0, updated = 0;
-  const dropped = [], noPrice = [];
-  const unfilled = c => !(num(c.strike)>0) && !(num(c.credit)>0);
-  // Clear out header words an earlier import mistook for tickers, as long as nothing was typed into them.
-  const junk = root.cands.filter(c=>NOT_TICKERS[c.sym] && unfilled(c)).length;
-  root.cands = root.cands.filter(c=>!(NOT_TICKERS[c.sym] && unfilled(c)));
+  const dropped = [];
   found.forEach((price, sym)=>{
     const listed = root.cands.filter(c=>c.sym===sym);
-    const need = price>0 ? bandFloor(price)*100 : null;
-    const best = price>0 ? Math.max.apply(null, accts.map(x=>roomFor(x, sym))) : null;
-    const tooBig = price>0 && need > best + 1e-6;
+    const need = bandFloor(price)*100;
+    const best = Math.max.apply(null, accts.map(x=>roomFor(x, sym)));
+    const tooBig = need > best + 1e-6;
     if(listed.length){
-      if(price>0) listed.forEach(c=>{ c.last = price; });
+      listed.forEach(c=>{ c.last = price; });
       // A re-import re-checks size too, but only takes out rows you haven't filled in yet.
-      if(tooBig && listed.some(unfilled)){
-        root.cands = root.cands.filter(c=>!(c.sym===sym && unfilled(c)));
+      if(tooBig && listed.some(unfilledCand)){
+        root.cands = root.cands.filter(c=>!(c.sym===sym && unfilledCand(c)));
         dropped.push({sym, price, need, best});
         if(root.cands.some(c=>c.sym===sym)) updated++;
       } else updated++;
       return;
     }
-    if(!(price>0)){ root.cands.push(newCand(sym, null)); noPrice.push(sym); added++; return; }
     if(tooBig){ dropped.push({sym, price, need, best}); return; }
     root.cands.push(newCand(sym, price)); added++;
   });
@@ -1313,12 +1286,9 @@ function importCSV(text, name){
 
   const list = (arr, f) => arr.slice(0,12).map(f).join(", ") + (arr.length > 12 ? ", and " + (arr.length - 12) + " more" : "");
   box.innerHTML = '<div class="okmsg">' + esc(name||"CSV") + ": " + plural(found.size,"ticker") + " &mdash; added " + added +
-    (updated ? ", " + updated + " already listed (price updated)" : "") + (dropped.length ? ", " + dropped.length + " left out" : "") + "." +
-    (junk ? " Removed " + plural(junk,"row") + " named after a header word from an earlier import." : "") + "</div>" +
+    (updated ? ", " + updated + " already listed (price updated)" : "") + (dropped.length ? ", " + dropped.length + " left out" : "") + ".</div>" +
     (dropped.length ? '<div class="flag mut">Left out &mdash; one contract at ' + root.band + "% under the price is more than any account can put into the symbol: " +
-      list(dropped, x=>esc(x.sym) + " " + fmtP(x.price) + " (" + fmt$(x.need) + " vs " + fmt$(x.best) + ")") + ".</div>" : "") +
-    (noPrice.length ? '<div class="flag amber">No price for ' + list(noPrice, esc) + " &mdash; added without a size check.</div>" : "") +
-    (col.price<0 ? '<div class="flag amber">No price column found, so nothing could be size-checked.</div>' : "");
+      list(dropped, x=>esc(x.sym) + " " + fmtP(x.price) + " (" + fmt$(x.need) + " vs " + fmt$(x.best) + ")") + ".</div>" : "");
 }
 
 /* ---------------- 03 · Sell a Put ---------------- */

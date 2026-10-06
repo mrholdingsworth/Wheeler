@@ -100,21 +100,28 @@ Single self-contained `index.html`, house style from `../PROJECT-HANDOFF.md`. St
     still see the row.
   - **Net/contract:** uses the active account's fee; it's the only per-account column.
 - **CSV import** fills the list. Prices come from the CSV itself. Steve ruled out a quote API, so
-  there's no Finnhub here, deliberately. It finds Symbol/Ticker and Price/Last headers; with no
-  header, column 1 is the symbol and the first number after it is the price. It handles comma,
-  semicolon or tab, quotes, and `$`.
+  there's no Finnhub here, deliberately. **It reads one format only: his scanner's watchlist
+  export** (simplified 2026-10-05 at his request, since the source never changes):
+  ```
+  Watchlist Scanner
+  (blank)
+  Results
+  Symbol,Description,Last,$VOL,APTR,RS Rating,%Chng 1 M
+  ```
+  The header is the first line with both a `Symbol` and a `Last` column. Everything above it is
+  title. Columns are taken by name, so reordered or added scanner columns still work. Commas
+  inside quotes are respected. Anything else is refused with a plain message. The earlier
+  general-purpose guessing (delimiters, width detection, header synonyms, headerless fallback,
+  header-word blocklist) was removed.
   - **Filter:** a ticker is left out when no account could hold one contract at the bottom of the
     strike band, `price × (1 − band%)` × 100, against `min(capital, cap room)`. Band is a shared
     setting, default 10%, for puts just outside 40 delta. The credit offset is ignored because
     it's unknown at import.
-  - **Title lines before the header** (scanner exports open with "Watchlist Scanner", "Results")
-    are skipped. Rows narrower than the table's usual width are ignored, and the header row is
-    searched for in the first 15 rows. Header words are never taken as tickers. Tested on Steve's
-    real export: 32 added, 33 left out, all priced, for a $10k account.
+  - **Tested on Steve's real export:** 32 added and 33 left out, all priced, for a $10k account.
   - **Already-listed tickers** get their price updated, not duplicated. A re-import re-checks
-    size and removes oversized rows that were never filled in. It also sweeps unfilled rows named
-    after header words. Tickers with no price are
-    added unchecked and flagged.
+    size and removes oversized rows that were never filled in.
+  - **One-time repair in `normalize()`:** drops unfilled RESULTS/SYMBOL rows that the first
+    importer made from title lines. It can be deleted once no saved list could hold one.
   - **The strike box** placeholder shows the band floor. "Remove unfilled" clears rows left blank.
 - **Selector picks are listed best first** by weekly return on collateral (ties by net), numbered,
   so the first one is the one to sell first. A dollar ordering would just rank the high strikes first.
