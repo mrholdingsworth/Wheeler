@@ -92,8 +92,10 @@ Single self-contained `index.html`, house style from `../PROJECT-HANDOFF.md`. St
   merged into it on load, deduplicated by symbol, strike, credit and expiry. The selector runs it
   once per account against that account's buying power or capital-to-deploy, fees and per-symbol
   cap. The active account is shown first.
-  - **Picks column:** one chip per account (take N / pass / sold N / too big / at cap), named when
-    there's more than one account.
+  - **Picks column:** takes only ("Name ×N"), and only for accounts expanded in the selector
+    (2026-10-07). Pass, sold and warning chips were removed as clutter with several accounts.
+  - **Account blocks collapse** (`a.selShut`, saved). A collapsed account shows one line, "Sell N for
+    $X net", and drops out of the Picks column. No toggle with a single account.
   - **Capital to deploy:** a box per account, now inside its result block.
   - **Sell:** switches to that account before prefilling. A recorded sale no longer deletes the
     row. It adds to `c.sold[accountId]`, which comes off that account's max qty, so other accounts
