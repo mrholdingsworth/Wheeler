@@ -1059,24 +1059,20 @@ function selCompute(){
     set("cc_wk_",   r.wk!=null ? pct(r.wk) : "");
     set("cc_ann_",  r.ann!=null ? pct(r.ann,1) : "");
   });
-  // Picks: one chip per account, named when there is more than one.
+  // Picks: only who takes it, and only for accounts open below — a collapsed account drops out of
+  // the column too, so the list shows the accounts you're working.
+  const shown = res.filter(R=>!(many && R.a.selShut));
   root.cands.forEach((c,i)=>{
     const el = $("cc_st_"+i); if(!el) return;
-    el.innerHTML = res.map(R=>{
-      const r = R.rows[i], nm = many ? esc(R.a.name.length > 10 ? R.a.name.slice(0,9) + "…" : R.a.name) + " " : "";
-      if(R.take[i]) return '<span class="pill good">' + nm + 'take ' + R.take[i] + '</span>';
-      if(r.why==="sold") return '<span class="pill plain">' + nm + 'sold ' + r.sold + '</span>';
-      if(r.ok) return '<span class="pill plain">' + nm + 'pass</span>';
-      if(r.why==="incomplete") return "";
-      return '<span class="pill warn"' + (r.why==="at cap" ? ' title="' + fmt$(r.held) + ' already in ' + esc(c.sym) + '; ' +
-        fmt$(r.room) + ' of room under the cap, ' + fmt$(r.coll) + ' needed"' : "") + '>' + nm + esc(r.why) + '</span>';
-    }).filter(Boolean).join(" ");
+    el.innerHTML = shown.filter(R=>R.take[i]).map(R=>'<span class="pill good">' +
+      (many ? esc(R.a.name.length > 10 ? R.a.name.slice(0,9) + "…" : R.a.name) + " &times;" : "take ") + R.take[i] + '</span>').join(" ");
   });
   const nPick = res.reduce((s,R)=>s + R.picks.length, 0);
   $("selSummary").textContent = root.cands.length ? plural(root.cands.length,"put") + " listed" +
     (nPick ? ", " + nPick + " picked" + (many ? " across " + plural(res.filter(R=>R.picks.length).length,"account") : "") : "") : "";
   $("selOut").innerHTML = root.cands.length ? res.map(R=>R.html).join("") : "";
 }
+window.toggleSelAcct = id => { const a = root.accounts[id]; if(!a) return; a.selShut = !a.selShut; save(); selCompute(); };
 window.setCap = (id, v) => {
   const a = root.accounts[id]; if(!a) return;
   const n = num(v); a.capital = n>=0 && String(v).trim()!=="" ? n : null;
@@ -1086,8 +1082,10 @@ function selFor(a){
   const d = deriveAcct(a), bp = Math.max(0, d.bp), cap = candCap(a, d), many = root.order.length > 1;
   const capNoteTxt = a.capital==null ? fmt$(bp) + " free"
     : (a.capital > bp + EPS ? '<span style="color:var(--amber)">over the ' + fmt$(bp) + ' free</span>' : "of " + fmt$(bp) + " free");
-  const head = '<div class="row" style="margin:16px 0 0;align-items:center">' +
-    (many ? '<span class="head" style="margin:0' + (a.id===root.active ? ";color:var(--blue)" : "") + '">' + esc(a.name) + '</span>' : "") +
+  const shut = many && !!a.selShut;
+  const name = many ? '<button class="small" onclick="toggleSelAcct(' + q(a.id) + ')">' + (shut ? "&#9656;" : "&#9662;") + '</button>' +
+    '<span class="head" style="margin:0' + (a.id===root.active ? ";color:var(--blue)" : "") + '">' + esc(a.name) + '</span>' : "";
+  const head = '<div class="row" style="margin:16px 0 0;align-items:center">' + name +
     '<label for="cap_' + a.id + '" style="margin:0">Capital to deploy</label>' +
     '<input id="cap_' + a.id + '" type="number" step="0.01" style="width:130px" value="' + (a.capital==null ? "" : a.capital) +
     '" placeholder="' + bp.toFixed(2) + '" onchange="setCap(' + q(a.id) + ',this.value)">' +
@@ -1096,8 +1094,8 @@ function selFor(a){
   const elig = rows.filter(r=>r.ok);
   const oneExpAll = elig.every(r=>r.exp===(elig[0]||{}).exp);
   const k = elig.length ? knapsack(elig.map(r=>({coll:r.coll, net:r.net, v:r.val, max:r.max, key:r.key, room:r.room})), cap, oneExpAll) : {cnt:[], approx:false};
-  // "At cap" already shows on the row. The one cap effect a chip can't show is a symbol whose rows
-  // each fit but not together, so only that is named here.
+  // Only one cap effect is named: a symbol whose rows each fit but not together. Rows shut out
+  // entirely simply aren't picked.
   let capNote = "";
   if(isFinite(limit)){
     const held = [], bySym = {};
@@ -1118,6 +1116,12 @@ function selFor(a){
   const picks = elig.map(r=>({r, n:take[r.i]||0})).filter(x=>x.n>0)
     .sort((x,y)=> (y.r.wk - x.r.wk) || (y.r.net - x.r.net));
   lastPicks[a.id] = picks;
+  // Collapsed: one line — the name and what it would sell.
+  if(shut){
+    const n = picks.reduce((s,x)=>s+x.n,0), net = picks.reduce((s,x)=>s + x.r.net*x.n, 0);
+    return {a, rows, take, picks, html: '<div class="row" style="margin:12px 0 0;align-items:center">' + name +
+      '<span class="muted">' + (n ? "Sell " + n + " for " + fmt$(net) + " net" : "Nothing to sell") + '</span></div>'};
+  }
   const result = html => ({a, rows, take, picks, html: head + html});
   if(!picks.length)
     return result('<div class="calbox"><div class="calans" style="color:var(--amber)">Nothing to sell</div>' + capNote + '</div>');
