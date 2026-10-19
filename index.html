@@ -428,6 +428,7 @@ function newRoot(){
   return { v:SCHEMA, seq:0, active:a.id, order:[a.id], accounts:{[a.id]:a}, collapsed:{}, cands:[], band:10 };
 }
 const acct = () => root.accounts[root.active];
+const markOf = sym => (root.marks && root.marks[sym] > 0) ? root.marks[sym] : null;
 const findPos = pid => acct().positions.find(p=>p.id===pid);
 
 function load(){
@@ -452,6 +453,13 @@ function normalize(){
   // The put list used to belong to each account. It is one shared list now: fold every account's old
   // list into it, keeping the first copy of any row that appears in more than one.
   if(!Array.isArray(root.cands)) root.cands = [];
+  // Marks used to live on each position, so the same symbol in two accounts could carry two prices.
+  // They are one per symbol now; the first mark found for a symbol carries across.
+  if(!root.marks || typeof root.marks!=="object") root.marks = {};
+  Object.values(root.accounts).forEach(a=>(a.positions||[]).forEach(p=>{
+    if(p.mark>0 && !(root.marks[p.sym]>0)) root.marks[p.sym] = p.mark;
+    delete p.mark;
+  }));
   if(root.band==null) root.band = 10;
   const sig = c => [c.sym||"", c.strike, c.credit, c.exp].join("|");
   const have = {}; root.cands.forEach(c=>{ have[sig(c)] = 1; });
@@ -689,7 +697,8 @@ function deriveAcct(a){
     o.real += d.real; o.cost += d.cost; o.coll += d.coll; o.longc += d.longc; o.snet += d.snet; o.nPutC += d.nPutC;
     if(d.sh>0){
       o.nHold++;
-      if(p.mark>0){ o.unreal += (p.mark - d.avg)*d.sh; o.marked++; } else o.unmarked++;
+      const mk = markOf(p.sym);
+      if(mk){ o.unreal += (mk - d.avg)*d.sh; o.marked++; } else o.unmarked++;
     }
     d.rev.forEach(e=>o.points.push(e));
     (d.flat ? o.closed : o.open).push({p, d});
@@ -806,7 +815,8 @@ function renderTabs(){
     '<span class="tabsep" aria-hidden="true"></span>' +
     '<button class="small" title="New account" onclick="addAcct()">+</button>' +
     '<button class="small" title="Rename this account" onclick="renameAcct()">Rename</button>' +
-    (root.order.length>1 ? '<button class="small danger" title="Delete this account" onclick="deleteAcct()">&#10005;</button>' : "");
+    (root.order.length>1 ? '<button class="small danger" title="Delete this account" onclick="deleteAcct()">&#10005;</button>' : "") +
+    '<button class="small" style="margin-left:auto" title="Last prices for every symbol held, all accounts" onclick="marksUI()">Update marks</button>';
 }
 
 const metric = (k, v, r, c) => '<div class="metric"><div class="k">'+k+'</div><div class="v '+(c||"")+'">'+v+'</div>'+
@@ -1329,7 +1339,9 @@ function recordNP(){
    remaining test always binds, and it always demands more captured than time spent: (1 − h/ρ)
    ahead of the straight line, where ρ is the trade's own weekly rate. When the credit pays less
    than h, the floor binds instead. If neither leaves a price above zero, holding to expiry is the
-   better use of the capital. */
+   better use of the capital.
+   Calls run the same tests on a calendar clock (days, 7 a week): the capital is the shares, which
+   are held every day including weekends, not cash freed for the next session. */
 function tradingDays(a, b){            // weekdays in [a, b)
   let n = 0;
   for(let x = dnum(a), e = dnum(b); x < e; x++){ const w = new Date(x*864e5).getUTCDay(); if(w!==0 && w!==6) n++; }
@@ -1337,14 +1349,16 @@ function tradingDays(a, b){            // weekdays in [a, b)
 }
 function closeTarget(a, d, L, on){
   const h = (a.hurdle||0)/100, sh = 100*L.qty, fee = (a.fee||0)/100;
-  const T = tradingDays(L.open.date, L.exp) + 1;
-  const t = Math.min(T, tradingDays(L.open.date, on < L.open.date ? L.open.date : on));
+  const from = on < L.open.date ? L.open.date : on, cal = L.type==="call";
+  const W = cal ? 7 : 5;                                     // units in a week
+  const T = cal ? Math.max(1, daysBetween(L.open.date, L.exp)) : tradingDays(L.open.date, L.exp) + 1;
+  const t = Math.min(T, cal ? daysBetween(L.open.date, from) : tradingDays(L.open.date, from));
   const left = T - t;
   const K = L.type==="put" ? L.strike : (d.adj>0 ? d.adj : d.avg>0 ? d.avg : L.strike);
   const C = L.open.price, ofee = L.open.fees/sh;
-  const rho = (C - ofee - fee)/K * 5/T;                     // the trade's own weekly rate, held to expiry
-  const rem = h*K*left/5 - 2*fee;
-  const flo = C - ofee - fee - h*K*Math.max(t,1)/5;
+  const rho = (C - ofee - fee)/K * W/T;                     // the trade's own weekly rate, held to expiry
+  const rem = h*K*left/W - 2*fee;
+  const flo = C - ofee - fee - h*K*Math.max(t,1)/W;
   const raw = Math.min(rem, flo);
   const price = Math.floor(raw*100 + 1e-7)/100;              // a buy limit rounds down, never up
   const hold = left<=0 || h<=0 || price < 0.01;
@@ -1423,7 +1437,7 @@ function posCard(p, d, A){
     '</div>';
 
   if(d.sh){
-    const m = p.mark>0 ? p.mark : null;
+    const m = markOf(p.sym);
     h += '<div class="marks"><div style="display:flex;align-items:center;gap:8px"><label for="mk_'+p.id+'" style="margin:0">Last price</label>' +
       '<input id="mk_'+p.id+'" type="number" step="any" value="'+(m||"")+'" placeholder="mark" onchange="setMark('+q(p.id)+',this.value)"></div>' +
       (m ? '<span class="muted">vs cost <b class="'+cls((m-d.avg)*d.sh)+'" style="font-family:var(--mono)">'+sgn$((m-d.avg)*d.sh)+'</b> ('+spct((m-d.avg)/d.avg,1)+')' +
@@ -1500,7 +1514,23 @@ window.setAllPos = shut => {
   save(); renderOpen(); renderSections();
 };
 window.histToggle = (pid, open) => { const p = findPos(pid); if(p && !!p.hist!==open){ p.hist = open; save(); } };
-window.setMark = (pid, v) => { const p = findPos(pid); p.mark = num(v)>0 ? num(v) : null; save(); render(); };
+// A mark belongs to the symbol, not the position: one price, every account that holds it.
+window.setMark = (pid, v) => { const p = findPos(pid); if(p){ putMark(p.sym, v); save(); render(); } };
+function putMark(sym, v){ const n = num(v); if(n>0) root.marks[sym] = n; else delete root.marks[sym]; }
+// Every symbol with shares in any account, in one list.
+window.marksUI = () => {
+  const held = {};
+  root.order.forEach(id=>deriveAcct(root.accounts[id]).open.forEach(x=>{ if(x.d.sh>0) held[x.p.sym] = (held[x.p.sym]||0) + x.d.sh; }));
+  const syms = Object.keys(held).sort();
+  const body = syms.length
+    ? '<table>' + syms.map((s,i)=>'<tr><td><b style="font-family:var(--mono)">' + esc(s) + '</b></td><td class="num muted">' + fmtQ(held[s]) + ' sh</td>' +
+        '<td style="width:130px"><input id="mk_all_' + i + '" type="number" step="any" value="' + (markOf(s)||"") + '" placeholder="mark"></td></tr>').join("") + '</table>'
+    : '<div class="muted">No share positions.</div>';
+  openModal("Marks", body, "Save", () => {
+    syms.forEach((s,i)=>putMark(s, mv("mk_all_" + i)));
+    return null;
+  });
+};
 window.delPos = pid => {
   const p = findPos(pid), n = p.legs.length + p.shares.length;
   if(!confirm("Delete the whole " + p.sym + " position and its " + plural(n,"event") + "? Only a backup brings it back.")) return;
@@ -1581,7 +1611,7 @@ window.posAction = (pid, kind) => {
       fld("m_fees","Fees","number",r2(qty0*a.fee).toFixed(2),'step="0.01" min="0" data-auto="1"');
   } else {
     body += fld("m_qty","Shares","number", kind==="sellsh" ? d.sh : 100,'step="1" min="1"') +
-      fld("m_price","Price per share","number", kind==="sellsh" && p.mark ? p.mark : "",'step="any"') +
+      fld("m_price","Price per share","number", kind==="sellsh" && markOf(p.sym) ? markOf(p.sym) : "",'step="any"') +
       fld("m_fees","Fees","number","0.00",'step="0.01" min="0"');
   }
   body += '</div>';

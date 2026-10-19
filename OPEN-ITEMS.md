@@ -65,6 +65,10 @@ Single self-contained `index.html`, house style from `../PROJECT-HANDOFF.md`. St
     Fees count the close and the reopen.
   - floor: `C − fees − h·K·max(t,1)/5`. Closing still banks h for the sessions held.
 
+  **Calls use calendar days** (7 a week, T = days from sale to expiry), since the capital is the
+  shares, held every day. Puts stay on trading sessions (5 a week). Changed 2026-10-19 at Steve's
+  request. Hand-checked: a $0.50 call on a $40 basis, Mon→Fri, gives .21 / .15 / .10 / .04 / hold.
+
   The result is rounded down to the cent. "Hold" when neither leaves a positive price, or h is 0.
   For credits paying more than h, the remaining rule binds and always sits (1 − h/ρ) ahead of the
   straight-line pace. For credits paying less than h, the floor binds. Hand-checked: a $50 put at
@@ -127,6 +131,10 @@ Single self-contained `index.html`, house style from `../PROJECT-HANDOFF.md`. St
   - **The strike box** placeholder shows the band floor. "Remove unfilled" clears rows left blank.
 - **Selector picks are listed best first** by weekly return on collateral (ties by net), numbered,
   so the first one is the one to sell first. A dollar ordering would just rank the high strikes first.
+- **Marks are per symbol, shared by every account** (`root.marks`, 2026-10-19). They used to live
+  on each position, so one symbol in two accounts carried two prices. On load, old per-position
+  marks migrate (first found wins) and are deleted. "Update marks" in the account row lists every
+  symbol with shares in any account, with total shares, for one-pass entry. Still manual, no API.
 - **Collapse all / Expand all** on Open Positions. It's one button showing whichever action
   applies.
 - **A fixed "Capital to deploy" shrinks as you sell** from section 03, by the cash each sale used.
