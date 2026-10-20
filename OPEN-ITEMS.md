@@ -69,6 +69,11 @@ Single self-contained `index.html`, house style from `../PROJECT-HANDOFF.md`. St
   shares, held every day. Puts stay on trading sessions (5 a week). Changed 2026-10-19 at Steve's
   request. Hand-checked: a $0.50 call on a $40 basis, Mon→Fri, gives .21 / .15 / .10 / .04 / hold.
 
+  **Calls also need a minimum capture** (`a.callMin`, default 33%, 2026-10-20). The target is
+  never above `C × (1 − callMin)`. Steve's reasoning: a quick 10% looks rich per day, but so little
+  time has passed that no better call can be sold in its place. The rule label "min" shows when it
+  binds. Checked: a 30-day $1.00 call on a $40 basis, day 1, gives $0.67 (it was $0.92).
+
   The result is rounded down to the cent. "Hold" when neither leaves a positive price, or h is 0.
   For credits paying more than h, the remaining rule binds and always sits (1 − h/ρ) ahead of the
   straight-line pace. For credits paying less than h, the floor binds. Hand-checked: a $50 put at

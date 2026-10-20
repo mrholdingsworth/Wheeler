@@ -101,7 +101,7 @@ button.x:hover{color:var(--red);border-color:var(--red)}
 .fields>div>label{margin-top:auto}
 .fields.two{grid-template-columns:1fr 1fr}
 @media(min-width:1120px){
-  .fields.acctrow{grid-template-columns:150px 130px 160px 140px}
+  .fields.acctrow{grid-template-columns:150px 130px 160px 150px 140px}
   .fields.nprow{grid-template-columns:96px 104px 150px 88px 110px 100px 150px minmax(170px,1fr)}
 }
 
@@ -232,6 +232,7 @@ details[open] summary::before{content:"\25BE  "}
       <div><label for="s_start">Starting value</label><input id="s_start" type="number" step="0.01"></div>
       <div><label for="s_fee">Fees per contract</label><input id="s_fee" type="number" step="0.01" min="0"></div>
       <div><label for="s_hurdle">Target weekly return %</label><input id="s_hurdle" type="number" step="0.05" min="0"></div>
+      <div><label for="s_callmin">Call min capture %</label><input id="s_callmin" type="number" step="1" min="0" max="100"></div>
       <div><label for="s_alloc">Max per symbol %</label><input id="s_alloc" type="number" step="1" min="0" max="100" placeholder="no cap"></div>
     </div>
     <div class="statrow" id="acctStats" style="margin-top:14px"></div>
@@ -421,7 +422,7 @@ const nextN = () => (root.seq = (root.seq||0) + 1);
 
 function newAccount(name, start){
   return { id:uid(), name:name||"Wheeler", start: start==null ? 10000 : start,
-           fee:0.65, hurdle:1, maxAlloc:null, capital:null, flows:[], positions:[] };
+           fee:0.65, hurdle:1, callMin:33, maxAlloc:null, capital:null, flows:[], positions:[] };
 }
 function newRoot(){
   const a = newAccount("Wheeler", 10000);
@@ -482,7 +483,7 @@ function normalize(){
     const a = root.accounts[id];
     a.id = id;
     delete a.minWeekly;   // the per-put return floor was removed; nothing reads it
-    ["name","start","fee","hurdle"].forEach(k=>{ if(a[k]==null) a[k] = d[k]; });
+    ["name","start","fee","hurdle","callMin"].forEach(k=>{ if(a[k]==null) a[k] = d[k]; });
     if(a.capital===undefined) a.capital = null;
     if(a.maxAlloc===undefined) a.maxAlloc = null;
     ["flows","positions"].forEach(k=>{ if(!Array.isArray(a[k])) a[k] = []; });
@@ -803,7 +804,7 @@ function setVal(id, v){ const el = $(id); if(el && document.activeElement!==el) 
 function syncInputs(){
   const a = acct();
   setVal("s_start", a.start);
-  setVal("s_fee", a.fee); setVal("s_hurdle", a.hurdle); setVal("s_alloc", a.maxAlloc==null ? "" : a.maxAlloc);
+  setVal("s_fee", a.fee); setVal("s_hurdle", a.hurdle); setVal("s_callmin", a.callMin); setVal("s_alloc", a.maxAlloc==null ? "" : a.maxAlloc);
   setVal("sel_band", root.band);
   if(document.activeElement!==$("np_exp")) setNpExp();
 }
@@ -1359,10 +1360,14 @@ function closeTarget(a, d, L, on){
   const rho = (C - ofee - fee)/K * W/T;                     // the trade's own weekly rate, held to expiry
   const rem = h*K*left/W - 2*fee;
   const flo = C - ofee - fee - h*K*Math.max(t,1)/W;
-  const raw = Math.min(rem, flo);
+  // Calls also need a minimum capture. Closing early pays only if a better call can be sold in its
+  // place, and a few days in there isn't one: a quick 10% looks rich per day but buys nothing.
+  const minCap = cal ? C*(1 - (a.callMin==null ? 33 : a.callMin)/100) : Infinity;
+  const raw = Math.min(rem, flo, minCap);
   const price = Math.floor(raw*100 + 1e-7)/100;              // a buy limit rounds down, never up
   const hold = left<=0 || h<=0 || price < 0.01;
-  return { price, hold, rule: rem<=flo ? "remaining" : "floor", t, T, left, K, C, rho, h,
+  const rule = raw===minCap ? "min" : rem<=flo ? "remaining" : "floor";
+  return { price, hold, rule, t, T, left, K, C, rho, h,
            captured: hold ? null : (C - price)/C, elapsed: t/T };
 }
 // Today's target and the rest of the week's, one per remaining session.
@@ -1383,7 +1388,7 @@ function closeNote(a, d, L){
   const sched = plan.length > 1 ? ' <span class="muted">' + plan.map(x=>wd(x.date) + " " + (x.hold ? "hold" : fmtP(x.price))).join(" &middot; ") + "</span>" : "";
   if(c.hold) return '<div class="sub2">' + head + ": <b>hold</b>" + (c.h<=0 ? " (no target set)" : "") + sched + "</div>";
   return '<div class="sub2">' + head + ": close &le; <b>" + fmtP(c.price) + "</b> " +
-    '<span class="muted">' + Math.round(c.captured*100) + "% / " + Math.round(c.elapsed*100) + "% time" + (c.rule==="floor" ? ", floor" : "") + "</span>" + VBAR + sched + "</div>";
+    '<span class="muted">' + Math.round(c.captured*100) + "% / " + Math.round(c.elapsed*100) + "% time" + (c.rule==="floor" ? ", floor" : c.rule==="min" ? ", min" : "") + "</span>" + VBAR + sched + "</div>";
 }
 
 function statusPills(d){
@@ -1767,7 +1772,7 @@ window.addAcct = () => {
     if(Object.values(root.accounts).some(x=>x.name.toLowerCase()===name.toLowerCase())) return "There is already an account called " + name + ".";
     if(!(start>=0)) return "Starting value is missing.";
     const a = newAccount(name, r2(start)), cur = acct();
-    a.fee = cur.fee; a.hurdle = cur.hurdle; a.maxAlloc = cur.maxAlloc;
+    a.fee = cur.fee; a.hurdle = cur.hurdle; a.callMin = cur.callMin; a.maxAlloc = cur.maxAlloc;
     root.accounts[a.id] = a; root.order.push(a.id); root.active = a.id;
     return null;
   });
@@ -1916,6 +1921,7 @@ function wire(){
   setA("s_start",     (a,v)=>{ if(num(v)!=null) a.start = r2(num(v)); });
   setA("s_fee",       (a,v)=>{ if(num(v)>=0) a.fee = num(v); });
   setA("s_hurdle",    (a,v)=>{ if(num(v)>=0) a.hurdle = num(v); });
+  setA("s_callmin",   (a,v)=>{ const n = num(v); if(n>=0 && n<=100) a.callMin = n; });
   // Blank or zero means no cap; anything over 100 is no cap either, so store it as none.
   setA("s_alloc",     (a,v)=>{ const n = num(v); a.maxAlloc = n>0 && n<100 ? n : null; });
   $("sel_band").addEventListener("change", e=>{ const v = num(e.target.value); if(v>=0 && v<100){ root.band = v; save(); renderSelTable(); } });
