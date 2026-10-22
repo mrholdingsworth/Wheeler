@@ -691,7 +691,7 @@ function pathOf(p){
 
 function deriveAcct(a){
   const o = { flows:0, real:0, cost:0, coll:0, longc:0, snet:0, nPutC:0, nHold:0,
-              unreal:0, marked:0, unmarked:0, open:[], closed:[], points:[] };
+              unreal:0, markedCost:0, marked:0, unmarked:0, open:[], closed:[], points:[] };
   a.flows.forEach(f=>{ o.flows += f.amount; o.points.push({date:f.date, n:f.n||0, amt:f.amount}); });
   a.positions.forEach(p=>{
     const d = derivePos(p);
@@ -699,7 +699,7 @@ function deriveAcct(a){
     if(d.sh>0){
       o.nHold++;
       const mk = markOf(p.sym);
-      if(mk){ o.unreal += (mk - d.avg)*d.sh; o.marked++; } else o.unmarked++;
+      if(mk){ o.unreal += (mk - d.avg)*d.sh; o.markedCost += d.cost; o.marked++; } else o.unmarked++;
     }
     d.rev.forEach(e=>o.points.push(e));
     (d.flat ? o.closed : o.open).push({p, d});
@@ -835,7 +835,8 @@ function renderAccount(){
     metric("Put collateral", fmt$(d.coll), d.nPutC ? plural(d.nPutC,"contract") : "");
   if(d.nHold){
     tiles += metric("Value at marks", d.marked ? fmt$(d.value + d.unreal) : "—",
-      d.marked ? sgn$(d.unreal) + " vs cost" + (d.unmarked ? ", " + d.unmarked + " unmarked" : "") : "");
+      d.marked ? '<span class="' + cls(d.unreal) + '">' + sgn$(d.unreal) + " (" + spct(d.markedCost>0 ? d.unreal/d.markedCost : null,1) + ")</span> vs cost" +
+        (d.unmarked ? ", " + d.unmarked + " unmarked" : "") : "");
   }
   $("acctStats").innerHTML = tiles;
 
