@@ -1342,8 +1342,11 @@ function recordNP(){
    ahead of the straight line, where ρ is the trade's own weekly rate. When the credit pays less
    than h, the floor binds instead. If neither leaves a price above zero, holding to expiry is the
    better use of the capital.
-   Calls run the same tests on a calendar clock (days, 7 a week): the capital is the shares, which
-   are held every day including weekends, not cash freed for the next session. */
+   Calls are judged on their own credit, not against the account's target return. A covered call
+   is rent on shares already held: take it back whenever more of the credit has been earned than
+   of its life has passed — pace, C·(1 − t/T) on a calendar clock — but never for less than the
+   minimum capture, since a few days in there is no better call to sell in its place. So a call is
+   never "hold"; at worst the target is a penny. */
 function tradingDays(a, b){            // weekdays in [a, b)
   let n = 0;
   for(let x = dnum(a), e = dnum(b); x < e; x++){ const w = new Date(x*864e5).getUTCDay(); if(w!==0 && w!==6) n++; }
@@ -1361,13 +1364,17 @@ function closeTarget(a, d, L, on){
   const rho = (C - ofee - fee)/K * W/T;                     // the trade's own weekly rate, held to expiry
   const rem = h*K*left/W - 2*fee;
   const flo = C - ofee - fee - h*K*Math.max(t,1)/W;
-  // Calls also need a minimum capture. Closing early pays only if a better call can be sold in its
-  // place, and a few days in there isn't one: a quick 10% looks rich per day but buys nothing.
-  const minCap = cal ? C*(1 - (a.callMin==null ? 33 : a.callMin)/100) : Infinity;
-  const raw = Math.min(rem, flo, minCap);
-  const price = Math.floor(raw*100 + 1e-7)/100;              // a buy limit rounds down, never up
+  const floorCent = v => Math.floor(v*100 + 1e-7)/100;      // a buy limit rounds down, never up
+  if(cal){
+    const pace = C*(1 - t/T), minCap = C*(1 - (a.callMin==null ? 33 : a.callMin)/100);
+    const price = Math.max(0.01, floorCent(Math.min(pace, minCap)));
+    return { price, hold:false, rule: minCap < pace ? "min" : "pace", t, T, left, K, C, rho, h,
+             captured: (C - price)/C, elapsed: t/T };
+  }
+  const raw = Math.min(rem, flo);
+  const price = floorCent(raw);
   const hold = left<=0 || h<=0 || price < 0.01;
-  const rule = raw===minCap ? "min" : rem<=flo ? "remaining" : "floor";
+  const rule = rem<=flo ? "remaining" : "floor";
   return { price, hold, rule, t, T, left, K, C, rho, h,
            captured: hold ? null : (C - price)/C, elapsed: t/T };
 }
@@ -1386,7 +1393,7 @@ function closeNote(a, d, L){
   if(!plan.length) return "";
   const c = plan[0], head = fmtP(L.strike) + " " + L.type;
   const wd = s => new Date(dnum(s)*864e5).toLocaleDateString(undefined,{weekday:"short",timeZone:"UTC"});
-  const sched = plan.length > 1 ? ' <span class="muted">' + plan.map(x=>wd(x.date) + " " + (x.hold ? "hold" : fmtP(x.price))).join(" &middot; ") + "</span>" : "";
+  const sched = plan.length > 1 ? ' <span class="muted">' + plan.slice(0,5).map(x=>wd(x.date) + " " + (x.hold ? "hold" : fmtP(x.price))).join(" &middot; ") + "</span>" : "";
   if(c.hold) return '<div class="sub2">' + head + ": <b>hold</b>" + (c.h<=0 ? " (no target set)" : "") + sched + "</div>";
   return '<div class="sub2">' + head + ": close &le; <b>" + fmtP(c.price) + "</b> " +
     '<span class="muted">' + Math.round(c.captured*100) + "% / " + Math.round(c.elapsed*100) + "% time" + (c.rule==="floor" ? ", floor" : c.rule==="min" ? ", min" : "") + "</span>" + VBAR + sched + "</div>";

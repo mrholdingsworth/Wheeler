@@ -69,6 +69,13 @@ Single self-contained `index.html`, house style from `../PROJECT-HANDOFF.md`. St
   shares, held every day. Puts stay on trading sessions (5 a week). Changed 2026-10-19 at Steve's
   request. Hand-checked: a $0.50 call on a $40 basis, Mon→Fri, gives .21 / .15 / .10 / .04 / hold.
 
+  **Calls are judged on their own credit, by pace** (2026-11-02, replacing the hurdle/floor tests
+  for calls). Steve's framing is rent on shares already held: take it back whenever more of the
+  credit is realized than of the call's life has passed. So the target is `C × (1 − t/T)` on
+  calendar days, capped by the minimum capture below, and never "hold": it bottoms out at $0.01.
+  Checked: a 30-day $1.00 call gives .67 (min), .66 on day 10, .30 on day 21, .03, then .01. The
+  account target return no longer affects calls. The schedule line shows the next 5 sessions only.
+
   **Calls also need a minimum capture** (`a.callMin`, default 33%, 2026-10-20). The target is
   never above `C × (1 − callMin)`. Steve's reasoning: a quick 10% looks rich per day, but so little
   time has passed that no better call can be sold in its place. The rule label "min" shows when it
