@@ -577,6 +577,39 @@ function closeCash(L){
   if(L.close.how==="stc") return L.close.price*m - f;
   return -f;
 }
+/* Rolled calls. A short call bought back at a loss (counting any loss it carried in itself) hands
+   that loss to the next call sold on the position within ROLL_DAYS, so the new call's close target
+   has to earn it back. Calls sold the same day split it by contracts. A call that expires or is
+   called away ends its chain. Keyed by opening event, so the pieces of a partial close share it. */
+const ROLL_DAYS = 7;
+function rollCarry(p){
+  const fam = {}, ev = [];
+  p.legs.forEach(L=>{
+    if(L.type!=="call" || L.side!=="short") return;
+    let f = fam[L.open.n];
+    if(!f){ f = fam[L.open.n] = {qty:0, carry:0}; ev.push({n:L.open.n, date:L.open.date, k:"open"}); }
+    f.qty += L.qty;
+    if(L.close && L.close.how==="btc") ev.push({n:L.close.n, date:L.close.date, k:"close", L});
+  });
+  ev.sort((x,y)=> x.date<y.date ? -1 : x.date>y.date ? 1 : x.n - y.n);
+  let pool = 0, since = null;
+  for(let i = 0; i < ev.length; i++){
+    const e = ev[i];
+    if(e.k==="close"){
+      const f = fam[e.L.open.n], net = legPL(e.L) + f.carry*e.L.qty/f.qty;
+      if(net < 0){ pool += net; since = e.date; }
+      continue;
+    }
+    if(pool < 0 && daysBetween(since, e.date) <= ROLL_DAYS){
+      let j = i, q = 0;
+      while(j < ev.length && ev[j].k==="open" && ev[j].date===e.date) q += fam[ev[j++].n].qty;
+      for(let k = i; k < j; k++) fam[ev[k].n].carry = r2(pool*fam[ev[k].n].qty/q);
+      i = j - 1;
+    }
+    pool = 0;
+  }
+  return fam;
+}
 const VIA = { assign:" — assignment", callaway:" — called away", exercise:" — put exercised", combo:" — with the buyback", carry:" — brought in" };
 
 function derivePos(p){
@@ -663,7 +696,7 @@ function derivePos(p){
   return { sh, cost, avg: sh>0 ? cost/sh : null, adj: sh>0 ? (cost - rOpt - rSh - carry)/sh : null,
            rOpt:r2(rOpt), rSh:r2(rSh), real, carry, total, coll, peak, capNow: cost + coll + longc,
            longc, snet, nPutC, nCallC, nLongC, openLegs, flat, first, last, days,
-           roe, ann: roe==null ? null : annual(roe, days), fp, rows, rev };
+           roe, ann: roe==null ? null : annual(roe, days), fp, rows, rev, roll: rollCarry(p) };
 }
 
 // How a finished position got where it did, in the order it happened.
@@ -1366,10 +1399,14 @@ function closeTarget(a, d, L, on){
   const flo = C - ofee - fee - h*K*Math.max(t,1)/W;
   const floorCent = v => Math.floor(v*100 + 1e-7)/100;      // a buy limit rounds down, never up
   if(cal){
-    const pace = C*(1 - t/T), minCap = C*(1 - (a.callMin==null ? 33 : a.callMin)/100);
+    // N: what the call nets if it expires, after its opening fee and any loss rolled into it.
+    // Both tests are on what's kept after the closing fee too.
+    const f = d.roll && d.roll[L.open.n], carry = f ? f.carry*L.qty/f.qty : 0;
+    const N = C - ofee + carry/sh, m = (a.callMin==null ? 33 : a.callMin)/100;
+    const pace = N*(1 - t/T) - fee, minCap = N*(1 - m) - fee;
     const price = Math.max(0.01, floorCent(Math.min(pace, minCap)));
-    return { price, hold:false, rule: minCap < pace ? "min" : "pace", t, T, left, K, C, rho, h,
-             captured: (C - price)/C, elapsed: t/T };
+    return { price, hold:false, rule: minCap < pace ? "min" : "pace", t, T, left, K, C, rho, h, carry, N,
+             captured: N > 0 ? (N - fee - price)/N : null, elapsed: t/T };
   }
   const raw = Math.min(rem, flo);
   const price = floorCent(raw);
@@ -1395,8 +1432,10 @@ function closeNote(a, d, L){
   const wd = s => new Date(dnum(s)*864e5).toLocaleDateString(undefined,{weekday:"short",timeZone:"UTC"});
   const sched = plan.length > 1 ? ' <span class="muted">' + plan.slice(0,5).map(x=>wd(x.date) + " " + (x.hold ? "hold" : fmtP(x.price))).join(" &middot; ") + "</span>" : "";
   if(c.hold) return '<div class="sub2">' + head + ": <b>hold</b>" + (c.h<=0 ? " (no target set)" : "") + sched + "</div>";
+  const roll = c.carry ? VBAR + "roll " + sgn$(c.carry) : "";
   return '<div class="sub2">' + head + ": close &le; <b>" + fmtP(c.price) + "</b> " +
-    '<span class="muted">' + Math.round(c.captured*100) + "% / " + Math.round(c.elapsed*100) + "% time" + (c.rule==="floor" ? ", floor" : c.rule==="min" ? ", min" : "") + "</span>" + VBAR + sched + "</div>";
+    '<span class="muted">' + (c.captured==null ? "underwater" : Math.round(c.captured*100) + "% / " + Math.round(c.elapsed*100) + "% time" +
+    (c.rule==="floor" ? ", floor" : c.rule==="min" ? ", min" : "")) + roll + "</span>" + VBAR + sched + "</div>";
 }
 
 function statusPills(d){

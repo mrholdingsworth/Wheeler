@@ -81,6 +81,16 @@ Single self-contained `index.html`, house style from `../PROJECT-HANDOFF.md`. St
   time has passed that no better call can be sold in its place. The rule label "min" shows when it
   binds. Checked: a 30-day $1.00 call on a $40 basis, day 1, gives $0.67 (it was $0.92).
 
+  **Call tests are after fees, and carry rolls** (2026-11-02). With N = credit − opening fee −
+  any loss rolled in (per share), the target is `min(N·(1 − t/T), N·(1 − callMin)) − closing fee`,
+  so the 33% is what's kept after both fees. A short call bought back at a loss (its own P/L plus
+  whatever it carried) hands the loss to the next call sold on the position within 7 days
+  (`ROLL_DAYS`). Calls sold the same day split it by contracts; a gain carries nothing; expiry or
+  call-away ends the chain. The note shows "roll −$X", and "underwater" when N ≤ 0 (target $0.01).
+  It's inferred from dates, since rolls aren't one action yet. Checked: $1.00 call bought back at
+  $2.00 ($0.65 fees), rolled to $1.50: N = $0.48, day-1 target $0.31 (it was $1.00). A $0.10
+  call's minimum went from $0.06 to $0.05.
+
   The result is rounded down to the cent. "Hold" when neither leaves a positive price, or h is 0.
   For credits paying more than h, the remaining rule binds and always sits (1 − h/ρ) ahead of the
   straight-line pace. For credits paying less than h, the floor binds. Hand-checked: a $50 put at
