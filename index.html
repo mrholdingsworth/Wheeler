@@ -381,7 +381,8 @@ const sgn$ = v => (v>EPS?"+":"") + fmt$(v);
 const pct  = (v,d) => (v==null || !isFinite(v)) ? "—" : (v*100).toFixed(d==null?2:d) + "%";
 const spct = (v,d) => (v==null || !isFinite(v)) ? "—" : (v>0?"+":"") + pct(v,d);
 const cls  = v => v>EPS ? "pos" : v<-EPS ? "neg" : "";
-const fmtQ = v => Number(v).toLocaleString(undefined,{maximumFractionDigits:0});
+const fmtQ = v => Number(v).toLocaleString(undefined,{maximumFractionDigits:4});
+const q4 = v => Math.round(v*1e4)/1e4;   // share counts: fractional shares, to 4 places
 const plural = (n,w) => n + " " + w + (n===1 ? "" : "s");
 
 /* ---- dates: stored as YYYY-MM-DD, compared as whole UTC days so no timezone can shift a Friday ---- */
@@ -1669,17 +1670,18 @@ window.posAction = (pid, kind) => {
       fld("m_price", kind==="buyput" ? "Debit per share" : "Credit per share","number","",'step="any"') +
       fld("m_fees","Fees","number",r2(qty0*a.fee).toFixed(2),'step="0.01" min="0" data-auto="1"');
   } else {
-    body += fld("m_qty","Shares","number", kind==="sellsh" ? d.sh : 100,'step="1" min="1"') +
+    body += fld("m_qty","Shares","number", kind==="sellsh" ? q4(d.sh) : 100,'step="any" min="0.0001"') +
       fld("m_price","Price per share","number", kind==="sellsh" && markOf(p.sym) ? markOf(p.sym) : "",'step="any"') +
       fld("m_fees","Fees","number","0.00",'step="0.01" min="0"');
   }
   body += '</div>';
-  const read = () => ({ date:mv("m_date")||todayISO(), strike:mn("m_strike"), exp:mv("m_exp"), qty:mn("m_qty"), price:mn("m_price"), fees:mn("m_fees")||0 });
+  const read = () => ({ date:mv("m_date")||todayISO(), strike:mn("m_strike"), exp:mv("m_exp"), qty: opt ? mn("m_qty") : q4(mn("m_qty")), price:mn("m_price"), fees:mn("m_fees")||0 });
   const act = (c, f) => opt
     ? addLeg(c, {type: kind==="sellcall" ? "call" : "put", side: kind==="buyput" ? "long" : "short",
                  strike:f.strike, exp:f.exp, qty:f.qty, date:f.date, price:f.price, fees:f.fees})
     : addShares(c, {side: kind==="buysh" ? "buy" : "sell", date:f.date, qty:f.qty, price:f.price, fees:f.fees});
-  const check = f => !(f.qty>=1) || Math.floor(f.qty)!==f.qty ? (opt ? "Contracts" : "Shares") + " must be a whole number." :
+  const check = f => opt && (!(f.qty>=1) || Math.floor(f.qty)!==f.qty) ? "Contracts must be a whole number." :
+    !opt && !(f.qty>0) ? "Shares must be above zero." :
     opt && !(f.strike>0) ? "Strike must be above zero." : !(f.price>0) ? "Price must be above zero." :
     opt && !f.exp ? "Expiry is missing." : opt && f.exp < f.date ? "Expiry is before the trade date." : null;
   openModal(title, body, "Record", () => {
@@ -1789,7 +1791,7 @@ window.closeUI = (pid, lid) => {
 // starting value was set, it is already inside that number and counting it again would double it.
 window.bringIn = () => {
   const body = '<div class="fields two">' + fld("m_sym","Symbol","text","",'style="text-transform:uppercase"') +
-    fld("m_date","Shares bought","date",todayISO()) + fld("m_qty","Shares","number",100,'step="1" min="1"') +
+    fld("m_date","Shares bought","date",todayISO()) + fld("m_qty","Shares","number",100,'step="any" min="0.0001"') +
     fld("m_price","Cost per share","number","",'step="any"') + '</div>' +
     '<div class="lbl" style="margin-top:14px">The put before them</div>' +
     '<div class="fields two">' + fld("m_con","Contracts","number",1,'step="1" min="0"') +
@@ -1801,13 +1803,13 @@ window.bringIn = () => {
       '<option value="0">Basis + account P/L</option></select></div></div>';
   const read = () => {
     const con = mn("m_con")||0, cr = mn("m_cr")||0, db = mn("m_db")||0, of = mn("m_of")||0;
-    return { sym:mv("m_sym").trim().toUpperCase(), qty:mn("m_qty"), price:mn("m_price"), date:mv("m_date")||todayISO(),
+    return { sym:mv("m_sym").trim().toUpperCase(), qty:q4(mn("m_qty")), price:mn("m_price"), date:mv("m_date")||todayISO(),
              con, cr, db, of, net: r2(cr*100*con - db*100*con - of), inStart: mv("m_in")==="1" };
   };
   openModal("Bring in existing shares", body, "Add position", () => {
     const f = read();
     if(!f.sym) return "Symbol is missing.";
-    if(!(f.qty>=1)) return "Shares must be at least 1.";
+    if(!(f.qty>0)) return "Shares must be above zero.";
     if(!(f.price>0)) return "Cost per share must be above zero.";
     if(f.con<0 || Math.floor(f.con)!==f.con) return "Contracts must be a whole number.";
     if(f.cr<0 || f.db<0 || f.of<0) return "Credit, debit and fees can't be negative.";

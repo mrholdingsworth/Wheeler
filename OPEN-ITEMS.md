@@ -167,6 +167,10 @@ Single self-contained `index.html`, house style from `../PROJECT-HANDOFF.md`. St
 - **No start date.** Dropped at Steve's request. The equity chart starts at the first event.
 - **Named Wheeler** (repo name). The storage key stays `wheel.v1`: it's invisible, and renaming it
   would strand data already entered on the live site.
+- **Fractional shares** (2026-11-02, for small accounts that split a holding between the wheel and
+  another strategy). Bring in, Buy shares and Sell shares take any count above zero, rounded to 4
+  places (`q4`); share counts display to 4 places. They count in cost and BP like any shares.
+  Contracts stay whole.
 - **Bring in existing shares** takes the unrecorded put as contracts, credit per share, buyback
   debit per share, and total fees. That covers "sold a put, bought it back deep in the money, then
   bought shares". Its net always comes off the basis. A select decides whether it also counts in
