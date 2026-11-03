@@ -9,9 +9,8 @@ Single self-contained `index.html`, house style from `../PROJECT-HANDOFF.md`. St
 - **Edit an event in place.** Today a mistyped fill is fixed by undoing it and entering it again.
   That's fine for the latest event but awkward for one buried under later events. It needs an
   edit modal per history row that reuses the same validation.
-- **Rolls as one action.** A roll today is a buyback plus a new sale: two entries. A single "Roll"
-  on an open leg (close + reopen, same date) would halve the typing. Decide first whether a roll's
-  net credit should be shown as one line.
+- **Put rolls.** "Rolled" is on short calls only. Puts could take it too, but a loss carried into
+  a put's target would have to be squared with the hurdle rules first.
 - **Live marks.** Calc has Finnhub. Here the last price is typed by hand per position.
 
 ## Decided
@@ -83,13 +82,17 @@ Single self-contained `index.html`, house style from `../PROJECT-HANDOFF.md`. St
 
   **Call tests are after fees, and carry rolls** (2026-11-02). With N = credit − opening fee −
   any loss rolled in (per share), the target is `min(N·(1 − t/T), N·(1 − callMin)) − closing fee`,
-  so the 33% is what's kept after both fees. A short call bought back at a loss (its own P/L plus
-  whatever it carried) hands the loss to the next call sold on the position within 7 days
-  (`ROLL_DAYS`). Calls sold the same day split it by contracts; a gain carries nothing; expiry or
-  call-away ends the chain. The note shows "roll −$X", and "underwater" when N ≤ 0 (target $0.01).
-  It's inferred from dates, since rolls aren't one action yet. Checked: $1.00 call bought back at
-  $2.00 ($0.65 fees), rolled to $1.50: N = $0.48, day-1 target $0.31 (it was $1.00). A $0.10
-  call's minimum went from $0.06 to $0.05.
+  so the 33% is what's kept after both fees. The note shows "roll −$X", and "underwater" when
+  N ≤ 0 (target $0.01). Checked: $1.00 call bought back at $2.00 ($0.65 fees), rolled to $1.50:
+  N = $0.48, day-1 target $0.31 (it was $1.00). A $0.10 call's minimum went from $0.06 to $0.05.
+
+  **A roll is one action** (2026-11-02, at Steve's request, replacing a 7-day date guess): "Rolled"
+  on a short call's Close form takes the buyback (contracts, debit, fees) and the new call (strike,
+  expiry, credit, fees). Stored as `close.how = "roll"` with `close.roll` → the new leg, whose
+  `open.from` points back. The new call carries the old one's loss: its own P/L plus whatever it
+  carried, so chains add up. A gain carries nothing. A partial roll carries only the rolled
+  contracts' loss. The new call's open has no undo of its own; undoing the roll removes it, and is
+  refused once the new call has closed. Older plain buybacks carry nothing.
 
   The result is rounded down to the cent. "Hold" when neither leaves a positive price, or h is 0.
   For credits paying more than h, the remaining rule binds and always sits (1 − h/ρ) ahead of the

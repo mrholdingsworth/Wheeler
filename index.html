@@ -538,11 +538,12 @@ window.rescue = () => {
    that can drift out of step with the events that produced it.
 
    Leg:   { id, type:"put"|"call", side:"short"|"long", strike, exp, qty,
-            open:{date, price, fees, n}, close:null | {how, date, price, fees, n}, of? }
+            open:{date, price, fees, n, from?}, close:null | {how, date, price, fees, n, roll?}, of? }
    Share: { id, side:"buy"|"sell", date, qty, price, fees, n, via? }
 
    how:  btc     bought back              stc        long put sold
          btcbuy  bought back, and shares bought alongside
+         roll    call bought back and a new one sold; close.roll is the new leg, its open.from the old
          expired                          assigned   put: shares arrive / call: shares leave
          exercised  long put: shares sold at strike
 
@@ -555,7 +556,7 @@ window.rescue = () => {
        (shares at cost − option P/L banked − share P/L banked − premium carried in) ÷ shares.
      When the last share goes, that numerator is exactly minus the position's total P/L.
 */
-const OPEN_PRICE_HOWS = { btc:1, btcbuy:1, stc:1 };
+const OPEN_PRICE_HOWS = { btc:1, btcbuy:1, stc:1, roll:1 };
 function legPL(L){
   const m = 100*L.qty, o = L.open.price*m;
   const c = OPEN_PRICE_HOWS[L.close.how] ? L.close.price*m : 0;
@@ -566,48 +567,31 @@ const legName = L => fmtP(L.strike) + " " + L.type + " " + fmtD(L.exp);
 const legKind = L => (L.side==="short" ? "Short " : "Long ") + L.type;
 function closeText(L){
   const h = L.close.how;
-  const w = h==="btc" ? "Bought back" : h==="btcbuy" ? "Bought back, shares bought" : h==="stc" ? "Sold" :
+  const w = h==="btc" ? "Bought back" : h==="roll" ? "Rolled" : h==="btcbuy" ? "Bought back, shares bought" : h==="stc" ? "Sold" :
             h==="expired" ? "Expired" : h==="exercised" ? "Exercised" :
             (L.type==="put" ? "Assigned" : "Called away");
   return w + " " + L.qty + " " + legName(L);
 }
 function closeCash(L){
   const m = 100*L.qty, f = L.close.fees||0;
-  if(L.close.how==="btc" || L.close.how==="btcbuy") return -(L.close.price*m) - f;
+  if(L.close.how==="btc" || L.close.how==="btcbuy" || L.close.how==="roll") return -(L.close.price*m) - f;
   if(L.close.how==="stc") return L.close.price*m - f;
   return -f;
 }
-/* Rolled calls. A short call bought back at a loss (counting any loss it carried in itself) hands
-   that loss to the next call sold on the position within ROLL_DAYS, so the new call's close target
-   has to earn it back. Calls sold the same day split it by contracts. A call that expires or is
-   called away ends its chain. Keyed by opening event, so the pieces of a partial close share it. */
-const ROLL_DAYS = 7;
+/* Rolled calls. A call closed with "Rolled" hands its loss (its own P/L plus whatever it carried in)
+   to the call sold in its place, so that call's close target has to earn it back. A gain carries
+   nothing: it's already banked. Keyed by opening event, so the pieces of a partial close share it. */
 function rollCarry(p){
-  const fam = {}, ev = [];
-  p.legs.forEach(L=>{
-    if(L.type!=="call" || L.side!=="short") return;
-    let f = fam[L.open.n];
-    if(!f){ f = fam[L.open.n] = {qty:0, carry:0}; ev.push({n:L.open.n, date:L.open.date, k:"open"}); }
-    f.qty += L.qty;
-    if(L.close && L.close.how==="btc") ev.push({n:L.close.n, date:L.close.date, k:"close", L});
-  });
-  ev.sort((x,y)=> x.date<y.date ? -1 : x.date>y.date ? 1 : x.n - y.n);
-  let pool = 0, since = null;
-  for(let i = 0; i < ev.length; i++){
-    const e = ev[i];
-    if(e.k==="close"){
-      const f = fam[e.L.open.n], net = legPL(e.L) + f.carry*e.L.qty/f.qty;
-      if(net < 0){ pool += net; since = e.date; }
-      continue;
-    }
-    if(pool < 0 && daysBetween(since, e.date) <= ROLL_DAYS){
-      let j = i, q = 0;
-      while(j < ev.length && ev[j].k==="open" && ev[j].date===e.date) q += fam[ev[j++].n].qty;
-      for(let k = i; k < j; k++) fam[ev[k].n].carry = r2(pool*fam[ev[k].n].qty/q);
-      i = j - 1;
-    }
-    pool = 0;
-  }
+  const fam = {}, memo = {};
+  p.legs.forEach(L=>{ (fam[L.open.n] = fam[L.open.n] || {qty:0, from:L.open.from||null, carry:0}).qty += L.qty; });
+  const carry = n => {
+    if(n in memo) return memo[n];
+    memo[n] = 0;
+    const f = fam[n], prev = f.from && p.legs.find(x=>x.id===f.from);
+    if(prev && prev.close) memo[n] = r2(Math.min(0, legPL(prev) + carry(prev.open.n)*prev.qty/fam[prev.open.n].qty));
+    return memo[n];
+  };
+  Object.keys(fam).forEach(n=>{ fam[n].carry = carry(n); });
   return fam;
 }
 const VIA = { assign:" — assignment", callaway:" — called away", exercise:" — put exercised", combo:" — with the buyback", carry:" — brought in" };
@@ -627,7 +611,7 @@ function derivePos(p){
     if(e.k==="open"){
       const L = e.L, amt = L.open.price*100*L.qty;
       if(L.side==="short" && L.type==="put") coll += L.strike*100*L.qty;
-      rows.push({date:e.date, n:e.n, k:"open", id:L.id,
+      rows.push({date:e.date, n:e.n, k:"open", id:L.id, from:L.open.from||null,
         text:(L.side==="short" ? "Sold " : "Bought ") + L.qty + " " + legName(L),
         price:L.open.price, fees:L.open.fees,
         cash:r2(L.side==="short" ? amt - L.open.fees : -amt - L.open.fees), pl:null});
@@ -715,6 +699,7 @@ function pathOf(p){
     if(hows.btc) out.push("bought back");
   } else if(p.shares.some(S=>S.side==="buy" && !S.via) && !p.shares.some(S=>S.via==="carry")) out.push("shares bought");
   if(calls) out.push(plural(calls,"call"));
+  if(any(L=>L.close && L.close.how==="roll")) out.push("rolled");
   if(longs) out.push(plural(longs,"long put"));
   if(any(L=>L.type==="call" && L.close && L.close.how==="assigned")) out.push("called away");
   if(any(L=>L.close && L.close.how==="exercised")) out.push("put exercised");
@@ -771,6 +756,12 @@ function closeLeg(p, lid, f){
     const have = derivePos(p).sh;
     if(have < shq - 1e-9) return "That delivers " + fmtQ(shq) + " shares and the position holds " + fmtQ(have) + ".";
   }
+  const R = f.how==="roll" ? f.roll : null;
+  if(R){
+    if(!(R.strike>0)) return "New strike must be above zero.";
+    if(!(R.price>0)) return "New credit must be above zero.";
+    if(!R.exp || R.exp < f.date) return "New expiry is before the roll date.";
+  }
   // A partial close splits the leg: the closed piece becomes its own leg carrying its share of the
   // opening fees, and the remainder stays open under the original id.
   if(f.qty < L.qty){
@@ -795,6 +786,11 @@ function closeLeg(p, lid, f){
   else if(f.how==="btcbuy")
     addShares(p, {side:"buy", date:f.date, qty:f.shQty||shq, price:f.shPrice, fees:f.shFees||0, via:"combo"});
   L.close.link = (f.how==="assigned" || f.how==="exercised" || f.how==="btcbuy") ? p.shares[p.shares.length-1].id : null;
+  if(R){
+    addLeg(p, {type:L.type, side:L.side, strike:R.strike, exp:R.exp, qty:f.qty, date:f.date, price:R.price, fees:R.fees||0});
+    const N = p.legs[p.legs.length-1];
+    N.open.from = L.id; L.close.roll = N.id;
+  }
   return null;
 }
 const clone = o => JSON.parse(JSON.stringify(o));
@@ -1449,8 +1445,9 @@ function statusPills(d){
 function historyTable(p, d, canUndo){
   return '<table><tr><th>Date</th><th>Event</th><th class="num">Price</th><th class="num">Fees</th><th class="num">Cash</th><th class="num">P/L banked</th><th></th></tr>' +
     d.rows.map(r=>{
-      // A share trade that an assignment or buyback created is undone through the close that made it.
-      const undo = canUndo && !(r.k==="sh" && r.via && r.via!=="carry")
+      // A share trade that an assignment or buyback created, or a call a roll sold, is undone through
+      // the close that made it.
+      const undo = canUndo && !(r.k==="sh" && r.via && r.via!=="carry") && !(r.k==="open" && r.from)
         ? '<button class="x" title="Undo this" onclick="undoEv('+q(p.id)+','+q(r.k)+','+q(r.id)+')">&#10005;</button>' : "";
       return '<tr><td class="nw">'+fmtD(r.date)+'</td><td>'+esc(r.text)+'</td><td class="num">'+(r.price!=null ? fmtP(r.price) : "")+
         '</td><td class="num">'+(r.fees ? fmt$(r.fees) : "")+'</td><td class="num '+cls(r.cash)+'">'+sgn$(r.cash)+
@@ -1594,15 +1591,25 @@ window.delPos = pid => {
 window.undoEv = (pid, k, id) => {
   const a = acct(), p = findPos(pid);
   if(!p) return;
+  // The call a roll sold, with any pieces a partial close split off it. It goes with the roll, but
+  // only while none of it has closed.
+  const rolled = L => L.close && L.close.roll ? p.legs.filter(x=>x.open.from===L.id) : [];
+  const rollBlock = L => rolled(L).some(x=>x.close) ? "The call this rolled into has closed. Undo that first." : null;
   if(k==="open"){
-    const L = p.legs.find(x=>x.id===id);
-    if(!confirm("Remove " + legKind(L).toLowerCase() + " " + legName(L) + (L.close ? " and its close" : "") + " entirely?")) return;
+    const L = p.legs.find(x=>x.id===id), rb = rollBlock(L);
+    if(rb) return alert(rb);
+    if(!confirm("Remove " + legKind(L).toLowerCase() + " " + legName(L) + (L.close ? " and its close" : "") + (rolled(L).length ? " and the call it rolled into" : "") + " entirely?")) return;
     if(L.close && L.close.link) p.shares = p.shares.filter(S=>S.id!==L.close.link);
-    p.legs = p.legs.filter(x=>x!==L);
+    const drop = rolled(L);
+    p.legs = p.legs.filter(x=>x!==L && drop.indexOf(x)<0);
   } else if(k==="close"){
-    const L = p.legs.find(x=>x.id===id);
-    if(!confirm("Undo “" + closeText(L) + "”? The leg goes back to open" + (L.close.link ? " and the shares it moved are taken back" : "") + ".")) return;
+    const L = p.legs.find(x=>x.id===id), rb = rollBlock(L);
+    if(rb) return alert(rb);
+    if(!confirm("Undo “" + closeText(L) + "”? The leg goes back to open" + (L.close.link ? " and the shares it moved are taken back" :
+                rolled(L).length ? " and the call it rolled into is removed" : "") + ".")) return;
     if(L.close.link) p.shares = p.shares.filter(S=>S.id!==L.close.link);
+    const drop = rolled(L);
+    p.legs = p.legs.filter(x=>drop.indexOf(x)<0);
     L.close = null;
     const root_ = L.of || L.id;
     const sib = p.legs.find(x=>x!==L && !x.close && (x.of||x.id)===root_ && x.open.n===L.open.n);
@@ -1712,8 +1719,8 @@ window.closeUI = (pid, lid) => {
     ? [["stc","Sold"],["expired","Expired worthless"],["exercised","Exercised — shares sold at strike"]]
     : L.type==="put"
       ? [["btc","Bought back"],["expired","Expired worthless"],["assigned","Assigned — shares arrive"],["btcbuy","Bought back, and bought shares"]]
-      : [["btc","Bought back"],["expired","Expired worthless"],["assigned","Assigned — shares called away"]];
-  const expd = L.exp <= today;
+      : [["btc","Bought back"],["roll","Rolled — bought back, new call sold"],["expired","Expired worthless"],["assigned","Assigned — shares called away"]];
+  const expd = L.exp <= today, canRoll = L.side==="short" && L.type==="call";
   const how0 = expd ? "expired" : opts[0][0];
   const body = '<div class="muted" style="margin-bottom:10px">' + legKind(L) + " " + legName(L) + " &times;" + L.qty +
       ", opened " + fmtDY(L.open.date) + " at " + fmtP(L.open.price) + "</div>" +
@@ -1724,12 +1731,19 @@ window.closeUI = (pid, lid) => {
     fld("m_price","Debit per share","number","",'step="any"') +
     fld("m_fees","Fees","number",r2(L.qty*a.fee).toFixed(2),'step="0.01" min="0" data-auto="1"') +
     fld("m_shp","Share price","number","",'step="any"') +
-    fld("m_shf","Share fees","number","0.00",'step="0.01" min="0"') + '</div>';
+    fld("m_shf","Share fees","number","0.00",'step="0.01" min="0"') +
+    (canRoll ? '<div class="lbl" id="w_m_rh" style="grid-column:1/-1;margin-top:6px">New call</div>' +
+      fld("m_rs","Strike","number",L.strike,'step="any"') +
+      '<div id="w_m_re"><label for="m_re">Expiry</label><select id="m_re">' + expOptions(null, iso(dnum(L.exp)+1)) + '</select></div>' +
+      fld("m_rc","Credit per share","number","",'step="any"') +
+      fld("m_rf","Fees","number",r2(L.qty*a.fee).toFixed(2),'step="0.01" min="0" data-auto="1"') : "") + '</div>';
   let lastHow = null;
   const read = () => ({ how:mv("m_how"), date:mv("m_date")||today, qty:mn("m_qty"), price:mn("m_price"), fees:mn("m_fees")||0,
-                        shPrice:mn("m_shp"), shFees:mn("m_shf")||0 });
+                        shPrice:mn("m_shp"), shFees:mn("m_shf")||0,
+                        roll: canRoll ? {strike:mn("m_rs"), exp:mv("m_re"), price:mn("m_rc"), fees:mn("m_rf")||0} : null });
   const check = f => (OPEN_PRICE_HOWS[f.how] && !(f.price>=0 && mv("m_price")!=="")) ? "Enter the price per share." :
-                     (f.how==="btcbuy" && !(f.shPrice>0)) ? "Enter the price paid for the shares." : null;
+                     (f.how==="btcbuy" && !(f.shPrice>0)) ? "Enter the price paid for the shares." :
+                     (f.how==="roll" && mv("m_rc")==="") ? "Enter the new call's credit." : null;
   openModal("Close &middot; " + esc(p.sym), body, "Record", () => {
     const f = read(); return check(f) || closeLeg(p, lid, f);
   }, e => {
@@ -1741,6 +1755,7 @@ window.closeUI = (pid, lid) => {
       $("w_m_fees").querySelector("label").textContent = (how==="assigned" || how==="exercised") ? "Assignment fee" : "Fees";
       show("m_fees", how!=="expired");
       show("m_shp", how==="btcbuy"); show("m_shf", how==="btcbuy");
+      ["m_rh","m_rs","m_re","m_rc","m_rf"].forEach(id=>show(id, how==="roll"));
       if(!fees.dataset.touched){
         fees.dataset.auto = OPEN_PRICE_HOWS[how] ? "1" : "";
         fees.value = OPEN_PRICE_HOWS[how] ? r2((mn("m_qty")||L.qty)*a.fee).toFixed(2) : "0.00";
@@ -1755,6 +1770,11 @@ window.closeUI = (pid, lid) => {
     if(s.err) return note('<div class="flag red">'+esc(s.err)+'</div>');
     const d = derivePos(p), got = s.rOpt - d.rOpt;
     let h = '<div class="flag mut">Leg <b class="'+cls(got)+'">' + sgn$(got) + "</b>";
+    if(f.how==="roll"){
+      const N = s.openLegs.find(x=>x.open.from), rf = N && s.roll[N.open.n];
+      if(rf && rf.carry && Math.abs(rf.carry - got) > EPS) h += VBAR + "carries " + sgn$(rf.carry);
+      if(N){ const t = closeTarget(a, s, N, f.date); h += VBAR + "new call close &le; " + fmtP(t.price); }
+    }
     if(f.how==="assigned" && L.type==="put" || f.how==="btcbuy") h += VBAR + fmtQ(s.sh) + " sh, basis <b class=\"gold\">" + fmtP(s.adj) + "</b>";
     if(s.flat) h += VBAR + "closes at <b class=\""+cls(s.total)+"\">" + sgn$(s.total) + "</b> (" + pct(s.roe) + ", " + pct(s.ann,1) + " ann.)";
     else if((f.how==="assigned" && L.type==="call") || f.how==="exercised") h += VBAR + fmtQ(s.sh) + " sh left, basis " + fmtP(s.adj);
@@ -2009,8 +2029,8 @@ function wire(){
 
   $("modal").addEventListener("input", e=>{
     const t = e.target;
-    if(t.id==="m_fees" || t.id==="m_date") t.dataset.touched = "1";
-    if(t.id==="m_qty") autoFee("m_qty","m_fees");
+    if(t.id==="m_fees" || t.id==="m_rf" || t.id==="m_date") t.dataset.touched = "1";
+    if(t.id==="m_qty"){ autoFee("m_qty","m_fees"); autoFee("m_qty","m_rf"); }
     // Same rule as section 03: the expiry list follows the trade date.
     if(t.id==="m_date" && $("m_exp") && $("m_exp").tagName==="SELECT"){
       const from = t.value || todayISO(), list = fridays(EXP_N, from), v = $("m_exp").value;
